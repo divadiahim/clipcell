@@ -77,6 +77,8 @@ struct my_state
     struct xdg_surface *xdg_surface;
     struct xdg_toplevel *xdg_toplevel;
     SFT sft;
+    FT_Library library;
+    FT_Face face;
 };
 static void
 wl_buffer_release(void *data, struct wl_buffer *wl_buffer)
@@ -150,39 +152,44 @@ static struct wl_buffer *draw_frame(struct my_state *state)
     close(fd);
    
     //using plot_line to draw a triangle
-    static char *text = "Hello World!";
-    static uint32_t cp = 97;
-    printf("cp: %d\n", cp);
-    //cp++;
-	SFT_Glyph gid;  //  unsigned long gid;
-	if (sft_lookup(&state->sft, cp, &gid) < 0)
-          printf("sft_lookup failed\n");
+    // static char *text = "Hello World!";
+    // static uint32_t cp = 97;
+    // printf("cp: %d\n", cp);
+    // //cp++;
+	// SFT_Glyph gid;  //  unsigned long gid;
+	// if (sft_lookup(&state->sft, cp, &gid) < 0)
+    //       printf("sft_lookup failed\n");
 
-	SFT_GMetrics mtx;
-	if (sft_gmetrics(&state->sft, gid, &mtx) < 0)
-            printf("sft_gmetrics failed\n");
+	// SFT_GMetrics mtx;
+	// if (sft_gmetrics(&state->sft, gid, &mtx) < 0)
+    //         printf("sft_gmetrics failed\n");
             
-    SFT_Image img = {
-		.width  = mtx.minWidth,
-		.height = mtx.minHeight,
-	};
-    img.pixels = malloc((size_t)img.width * (size_t)img.height);
-    //print image width and height
-    printf("width: %d, height: %d\n", img.width, img.height);
-    sft_render(&state->sft, gid, img);
-   
+    // SFT_Image img = {
+	// 	.width  = mtx.minWidth,
+	// 	.height = mtx.minHeight,
+	// };
+    // img.pixels = malloc((size_t)img.width * (size_t)img.height);
+    // //print image width and height
+    // printf("width: %d, height: %d\n", img.width, img.height);
+    // sft_render(&state->sft, gid, img);
+    int ww = state->face->glyph->bitmap.width;
     static k = 0;
-    for (int i = 0; i < img.width * img.height; i++)
+    int rr = state->face->glyph->bitmap.rows;
+    for (int i = 0; i < rr* ww; i++)
 	{
-        int p = i % img.width;
-		if(i % img.width == 0)
-			k++;
-		 ((uint32_t *) data)[p +  k*width] = ((uint8_t *) img.pixels)[i];
+        int p = i % ww;
+		if(i % ww == 0)
+			k++, puts("");
+		 ((uint32_t *) data)[p +  k*width] = (int32_t)state->face->glyph->bitmap.buffer[i];
+        //  if(state->face->glyph->bitmap.buffer[i] < 128)
+        //  printf("+");
+        //  else printf("*");
+
     
 	}
     k = 0;
-    
-    free(img.pixels);
+     printf("%d", state->face->glyph->bitmap.width);
+    // free(img.pixels);
 
     int offset = 110;
     plot_line(0+offset, 0+offset, 500, 500, data, width);
@@ -253,15 +260,42 @@ static const struct wl_registry_listener registry_listener = {
 void setup(struct my_state *state)
 {
     uint32_t cp = 0x1F4A9;
-
+    FT_Error error;
+    FT_Init_FreeType(&state->library);
+    if(error)
+    {
+        fprintf(stderr, "Can't initialize freetype\n");
+        return 1;
+    }
+    error = FT_New_Face(state->library, "/usr/share/fonts/TTF/SourceSansPro-Regular.ttf", 0, &state->face);
+    if ( error == FT_Err_Unknown_File_Format )
+    {
+        fprintf(stderr, "font file could be opened and read, but it appears that its font format is unsupported");
+    }   
+    else if ( error )
+    {
+        fprintf(stderr, " another error code means that the font file could not be opened or read, or that it is broken");
+    }
+    error = FT_Set_Char_Size(state->face, 0, 16*128, 300, 300);
+    if(error)
+        fprintf(stderr, "sussy baka");
+   error = FT_Load_Glyph(state->face, FT_Get_Char_Index(state->face, 0x0032), 0);    
+    if(error)
+        fprintf(stderr, "sussy baka 2");
+    error = FT_Render_Glyph(state->face->glyph, FT_RENDER_MODE_NORMAL);
+    if(error)
+        fprintf(stderr, "sussy baka 3");
+    printf("sssss %u\n", state->face->glyph->bitmap.pitch);
+   // ft_pixel_mode_mono
+    
     //setup schrift
-    state->sft.xScale = 16*4;
-    state->sft.yScale = 16*4;
-    state->sft.flags = SFT_DOWNWARD_Y;
-    state->sft.font = sft_loadfile("/usr/share/fonts/TTF/SourceSansPro-SemiBold.ttf");
-    if (state->sft.font == NULL)
-		printf("TTF load failed");
-    else printf("TTF load success\n");
+    // state->sft.xScale = 16*4;
+    // state->sft.yScale = 16*4;
+    // state->sft.flags = SFT_DOWNWARD_Y;
+    // state->sft.font = sft_loadfile("/usr/share/fonts/TTF/SourceSansPro-SemiBold.ttf");
+    // if (state->sft.font == NULL)
+	// 	printf("TTF load failed");
+    // else printf("TTF load success\n");
 }
 int main(int argc, char const *argv[])
 {

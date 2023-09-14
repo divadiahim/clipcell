@@ -1,8 +1,8 @@
 CC = gcc
 CCFLAGS = -Wall -O2 -Wno-traditional
-LFLAGS = -lm -lwayland-client -lrt $(shell pkg-config --cflags freetype2)   
+LFLAGS = -lm -lwayland-client -lrt $(shell pkg-config --libs freetype2) $(shell pkg-config --cflags freetype2) 
 
-INCLUDE = include
+INCLUDE = include 
 SRC = src
 BIN = bin
 TARGET=client
