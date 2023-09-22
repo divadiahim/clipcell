@@ -4,6 +4,9 @@ LFLAGS = -lm -lwayland-client -lrt $(shell pkg-config --libs freetype2) $(shell 
 
 INCLUDE = include 
 SRC = src
+
+SRC_FILES := $(wildcard src/*.c)
+SRC_FILES := $(filter-out src/test.c, $(SRC_FILES))
 BIN = bin
 TARGET=client
 
@@ -12,7 +15,7 @@ test: $(BIN)
 	
 $(BIN):
 	mkdir -p $(BIN)
-	$(CC) $(SRC)/*.c $(CCFLAGS) $(LFLAGS) -I$(INCLUDE) -o $(BIN)/$(TARGET)
+	$(CC) $(SRC_FILES) $(CCFLAGS) $(LFLAGS) -I$(INCLUDE) -o $(BIN)/$(TARGET)
 
 run: $(BIN)
 	./$(BIN)/$(TARGET)
