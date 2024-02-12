@@ -1,6 +1,6 @@
 CC = gcc
 CCFLAGS = -Wall -O2 -Wno-traditional
-LFLAGS = -lm -lwayland-client -lrt $(shell pkg-config --libs freetype2) $(shell pkg-config --cflags freetype2) 
+LFLAGS = -lm -lwayland-client -lrt $(shell pkg-config --libs freetype2) $(shell pkg-config --cflags freetype2) -lxkbcommon 
 
 INCLUDE = include 
 SRC = src
@@ -10,7 +10,7 @@ SRC_FILES := $(filter-out src/test.c, $(SRC_FILES))
 BIN = bin
 TARGET=client
 
-.PHONY: test bin
+.PHONY: test run 
 test: $(BIN)
 	
 $(BIN):
