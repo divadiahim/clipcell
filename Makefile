@@ -10,7 +10,7 @@ SRC_FILES := $(filter-out src/test.c, $(SRC_FILES))
 BIN = bin
 TARGET=client
 
-.PHONY: test run 
+.PHONY: test bin 
 test: $(BIN)
 	
 $(BIN):
