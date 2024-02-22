@@ -164,7 +164,7 @@ void draw_pixel(int x, int y, float intensity, struct my_state *state, void *dat
    uint32_t *pixel = &((uint32_t *)data)[y * state->width + x];
    Color fg = {255, 255, 255};
    Color bg = {27, 31, 35};
-   printf("intensity %f\n", 1 - intensity);
+   // printf("intensity %f\n", 1 - intensity);
    fg = apply_gama(fg);
    bg = apply_gama(bg);
    Color result = blend(fg, bg, 1 - intensity);
@@ -180,7 +180,7 @@ void setPixelColor(int x, int y, int c, struct my_state *state, void *data) {
       return;
    }
    int alpha = (c & 0x000000ff);
-   printf("%f\n", (alpha) / 255.0);
+   // printf("%f\n", (alpha) / 255.0);
    draw_pixel(x, y, (alpha) / 255.0, state, data);
 }
 int max(int a, int b) { return a > b ? a : b; }
@@ -212,12 +212,12 @@ void plotLineAA(int x0, int y0, int x1, int y1, struct my_state *state, void *da
 }
 void plotQuadRationalBezierSegAA(int x0, int y0, int x1, int y1,
                                  int x2, int y2, float w, bool aa, struct my_state *state, void *data) { /* draw an anti-aliased rational quadratic Bezier segment, squared weight */
-   int sx = x2 - x1, sy = y2 - y1;                                                              /* relative values for checks */
+   int sx = x2 - x1, sy = y2 - y1;                                                                       /* relative values for checks */
    double dx = x0 - x2, dy = y0 - y2, xx = x0 - x1, yy = y0 - y1;
    double xy = xx * sy + yy * sx, cur = xx * sy - yy * sx, err, ed; /* curvature */
    bool f;
 
-   assert(xx * sx <= 0.0 && yy * sy <= 0.0); /* sign of gradient must not change */
+   // assert(xx * sx <= 0.0 && yy * sy <= 0.0); /* sign of gradient must not change */
 
    if (cur != 0.0 && w > 0.0) {                                /* no straight line */
       if (sx * (long)sx + sy * (long)sy > xx * xx + yy * yy) { /* begin with longer part */
@@ -261,23 +261,26 @@ void plotQuadRationalBezierSegAA(int x0, int y0, int x1, int y1,
          ed = fmax(dx - xy, xy - dy);
          ed += 2 * ed * cur * cur / (4. * ed * ed + cur * cur); /* approximate error distance */
          x1 = 255 * fabs(err - dx - dy + xy) / ed;              /* get blend value by pixel error */
-         if (x1 < 256) 
-            if(aa)
+         if (x1 < 256)
+            if (aa)
                setPixelAA(x0, y0, x1, state, data);
-            else draw_pixel(x0, y0, 0,state, data);        /* plot curve */
-         if (f = 2 * err + dy < 0) {                            /* y step */
-            if (y0 == y2) return;                               /* last pixel -> curve finished */
-            if (dx - err < ed) 
-               if(aa)
-               setPixelAA(x0 + sx, y0, 255 * fabs(dx - err) / ed, state, data);
-               else draw_pixel(x0 + sx, y0, 0,state, data);
+            else
+               draw_pixel(x0, y0, 0, state, data); /* plot curve */
+         if (f = 2 * err + dy < 0) {               /* y step */
+            if (y0 == y2) return;                  /* last pixel -> curve finished */
+            if (dx - err < ed)
+               if (aa)
+                  setPixelAA(x0 + sx, y0, 255 * fabs(dx - err) / ed, state, data);
+               else
+                  draw_pixel(x0 + sx, y0, 0, state, data);
          }
          if (2 * err + dx > 0) {  /* x step */
             if (x0 == x2) return; /* last pixel -> curve finished */
-            if (err - dy < ed) 
-            if(aa)
-               setPixelAA(x0, y0 + sy, 255 * fabs(err - dy) / ed, state, data);
-            else draw_pixel(x0, y0 + sy, 0,state, data);
+            if (err - dy < ed)
+               if (aa)
+                  setPixelAA(x0, y0 + sy, 255 * fabs(err - dy) / ed, state, data);
+               else
+                  draw_pixel(x0, y0 + sy, 0, state, data);
             x0 += sx;
             dx += xy;
             err += dy += yy;
@@ -363,32 +366,37 @@ void draw_text_buffer(struct my_state *state, void *data, char *text) {
    }
 }
 void draw_rect(int x, int y, int width, int height, struct my_state *state,
-               void *data, int corner_radius, int thickness) {
+               void *data, int radius, int thickness) {
    // draw a rectangle with rounded corners using the plot_line function and the bezier function
    int x0 = x;
    int y0 = y;
    int x1 = x + width;
    int y1 = y + height;
-   int radius = corner_radius;
    int offset = state->offset;
-   int f_thickness = thickness / 2 - 1;
-   printf("%d %d %d %d\n", x0 + radius, y0, x1 - radius, y1);
+   int f_thickness = ceil(thickness / 2.0) - 1;
    plotLineAA(x0 + radius, y0, x1 - radius, y0, state, data, thickness);
    plotLineAA(x0 + radius, y1, x1 - radius, y1, state, data, thickness);
    plotLineAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y1 - radius, state, data, thickness);
    plotLineAA(x1, y0 + radius - f_thickness, x1, y1 - radius, state, data, thickness);
-      // plotQuadRationalBezierSegAA(x0, y0 + radius, x0, y0, x0 + radius, y0, 1, 0, state, data);
-   int end = thickness / 2 - 1;
-   // plotQuadRationalBezierSegAA(x0, y0 + radius, x0, y0, x0 + radius, y0, 1, 1, state, data);
-   // plotQuadRationalBezierSegAA(x0 - end, y0 + radius, x0 - end, y0 - end, x0 + radius, y0 - end, 1, 1, state, data);
-   // for(int i = 1; i < thickness/2 - 1; i+=1)
-   // {  
-   //       plotQuadRationalBezierSegAA(x0 - i, y0 + radius, x0 - i, y0 - i, x0 + radius, y0 - i, 1, 0, state, data);
 
-   // // plotQuadRationalBezierSegAA(x0, y1 - radius, x0, y1, x0 + radius, y1, 1, state, data);
-   // // plotQuadRationalBezierSegAA(x1, y0 + radius, x1, y0, x1 - radius, y0, 1, state, data);
-   // // plotQuadRationalBezierSegAA(x1, y1 - radius, x1, y1, x1 - radius, y1, 1, state, data);
-   // }
+   plotQuadRationalBezierSegAA(x0, y0 + radius - f_thickness, x0, y0 - f_thickness, x0 + radius, y0 - f_thickness, 1, 1, state, data);
+   plotQuadRationalBezierSegAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y0, x0 + radius, y0, 1, 1, state, data);
+
+   plotQuadRationalBezierSegAA(x1 - f_thickness, y0 + radius - f_thickness, x1 - f_thickness, y0, x1 - radius, y0, 1, 1, state, data);
+   plotQuadRationalBezierSegAA(x1, y0 + radius - f_thickness, x1, y0 - f_thickness, x1 - radius, y0 - f_thickness, 1, 1, state, data);
+
+   plotQuadRationalBezierSegAA(x0 + f_thickness, y1 - radius, x0 + f_thickness, y1 - f_thickness, x0 + radius, y1 - f_thickness, 1, 1, state, data);
+   plotQuadRationalBezierSegAA(x0, y1 - radius, x0, y1, x0 + radius, y1, 1, 1, state, data);
+
+   plotQuadRationalBezierSegAA(x1 - f_thickness, y1 - radius, x1 - f_thickness, y1 - f_thickness, x1 - radius, y1 - f_thickness, 1, 1, state, data);
+   plotQuadRationalBezierSegAA(x1, y1 - radius, x1, y1, x1 - radius, y1, 1, 1, state, data);
+  
+   for (int i = 1; i < f_thickness; i += 1) {
+      plotQuadRationalBezierSegAA(x0 + i, y0 + radius - f_thickness, x0 + i, y0 - f_thickness + i, x0 + radius, y0 - f_thickness + i, 1, 0, state, data);
+      plotQuadRationalBezierSegAA(x1 - i, y0 + radius - f_thickness, x1 - i, y0 - f_thickness + i, x1 - radius, y0 - f_thickness + i, 1, 0, state, data);
+      plotQuadRationalBezierSegAA(x0 + i, y1 - radius, x0 + i, y1 - i, x0 + radius, y1 - i, 1, 0, state, data);
+      plotQuadRationalBezierSegAA(x1 - i, y1 - radius, x1 - i, y1 - i, x1 - radius, y1 - i, 1, 0, state, data);
+   }
 }
 // unction that draws mutiple beziers together to give the impression of thickness
 static struct wl_buffer *draw_frame(struct my_state *state) {
@@ -397,6 +405,8 @@ static struct wl_buffer *draw_frame(struct my_state *state) {
    int height = state->height;
    int stride = width * 4;
    int size = stride * height;
+   static int thickness = 0;
+   thickness+=1;
    int fd = allocate_shm_file(size);
    if (fd < 0) {
       fprintf(stderr, "creating a buffer file for %d B failed: %m\n", size);
@@ -421,7 +431,7 @@ static struct wl_buffer *draw_frame(struct my_state *state) {
       }
    }
    // draw_text_buffer(state, data, "24/10/2024 Imi place sa ma joc cu pisicile");
-   draw_rect(100, 100, 300, 300, state, data, 20, 10);
+   draw_rect(100, 100, 300, 200, state, data, 30, thickness);
    // plotQuadRationalBezierSegAA(100, 100, 300, 100, 300, 300, 0.1, state, data);
    // plotQuadRationalBezierSegAA(112, 100, 312, 100, 312, 300, 0.1, state, data);
    // plotLineAA(100, 100, 300, 100, state, data);
