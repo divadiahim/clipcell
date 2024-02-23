@@ -1,33 +1,4 @@
-#include <stdint.h>
-
-#include "freetype/fttypes.h"
-#define _POSIX_C_SOURCE 1
-#include <assert.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <ft2build.h>
-#include <math.h>
-#include <stdbool.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/mman.h>
-#include <time.h>
-#include <unistd.h>
-#include <wayland-client.h>
-#include <xkbcommon/xkbcommon.h>
-
-#include "../include/schrift.h"
-#include "../include/xdg-shell-client-protocol.h"
-#include FT_FREETYPE_H
-#define ALPHA 1
-#define BG 0xFF000000
-
-typedef struct Color {
-   float r;
-   float g;
-   float b;
-} Color;
+#include "types.h"
 // gama correction
 float gama = 1.8f;
 float inverse_gama = 1.8f;
@@ -47,13 +18,41 @@ Color apply_inverse_gama(Color color) {
    color.b = 255 * pow(color.b / 255, 1.0f / gama);
    return color;
 }
-
+Color getColorFromHex(uint32_t hex) {
+   Color color;
+   color.a = (hex >> 24) & 0xFF;
+   color.r = (hex >> 16) & 0xFF;
+   color.g = (hex >> 8) & 0xFF;
+   color.b = hex & 0xFF;
+   return color;
+}
+uint32_t getColorHex(Color result) {
+   return ((uint8_t)result.a << 24) | ((uint8_t)result.r << 16) | ((uint8_t)result.g << 8) | (uint8_t)result.b;
+}
 Color blend(Color fg, Color bg, float alpha) {
    Color result;
    result.r = alpha * fg.r + (1 - alpha) * bg.r;
    result.g = alpha * fg.g + (1 - alpha) * bg.g;
    result.b = alpha * fg.b + (1 - alpha) * bg.b;
+   result.a = fg.a;
    return result;
+}
+Color blendLCD(Color fg, Color bg, FT_GlyphSlot slot, size_t z) {
+   Color result;
+   result.r = ((uint32_t)slot->bitmap.buffer[z] / 255.0) * fg.r +
+              (1 - ((uint32_t)slot->bitmap.buffer[z]) / 255.0) * bg.r;
+   result.g = ((uint32_t)slot->bitmap.buffer[z + 1] / 255.0) * fg.g +
+              (1 - ((uint32_t)slot->bitmap.buffer[z + 1]) / 255.0) * bg.g;
+   result.b = ((uint32_t)slot->bitmap.buffer[z + 2] / 255.0) * fg.b +
+              (1 - ((uint32_t)slot->bitmap.buffer[z + 2]) / 255.0) * bg.b;
+   result.a = fg.a;
+   return result;
+}
+void precompute_gama() {
+   for (size_t i = 0; i < TOTAL_COLORS; i++) {
+      Color color = getColorFromHex(colors[i]);
+      colorsGamma[i] = getColorHex(apply_gama(color));
+   }
 }
 /*shared memory support*/
 static void randname(char *buf) {
@@ -96,31 +95,6 @@ int allocate_shm_file(size_t size) {
    return fd;
 }
 /*wayland*/
-enum pointer_event_mask {
-   POINTER_EVENT_ENTER = 1 << 0,
-   POINTER_EVENT_LEAVE = 1 << 1,
-   POINTER_EVENT_MOTION = 1 << 2,
-   POINTER_EVENT_BUTTON = 1 << 3,
-   POINTER_EVENT_AXIS = 1 << 4,
-   POINTER_EVENT_AXIS_SOURCE = 1 << 5,
-   POINTER_EVENT_AXIS_STOP = 1 << 6,
-   POINTER_EVENT_AXIS_DISCRETE = 1 << 7,
-};
-
-struct pointer_event {
-   uint32_t event_mask;
-   wl_fixed_t surface_x, surface_y;
-   uint32_t button, state;
-   uint32_t time;
-   uint32_t serial;
-   struct {
-      bool valid;
-      wl_fixed_t value;
-      int32_t discrete;
-   } axes[2];
-   uint32_t axis_source;
-};
-
 struct my_state {
    struct wl_display *display;
    struct wl_registry *registry;
@@ -143,7 +117,6 @@ struct my_state {
    struct xkb_keymap *xkb_keymap;
    int width, height;
    bool closed;
-   SFT sft;
    FT_Library library;
    FT_Face face;
    int offset;
@@ -162,15 +135,11 @@ void draw_pixel(int x, int y, float intensity, struct my_state *state, void *dat
       return;
    }
    uint32_t *pixel = &((uint32_t *)data)[y * state->width + x];
-   Color fg = {255, 255, 255};
-   Color bg = {27, 31, 35};
-   // printf("intensity %f\n", 1 - intensity);
-   fg = apply_gama(fg);
-   bg = apply_gama(bg);
+   Color fg = getColorFromHex(colorsGamma[FOREG]);
+   Color bg = getColorFromHex(colorsGamma[BACKG]);
    Color result = blend(fg, bg, 1 - intensity);
    result = apply_inverse_gama(result);
-   *pixel = (0xFF << 24) | ((uint8_t)result.r << 16) | ((uint8_t)result.g << 8) |
-            (uint8_t)result.b;
+   *pixel = getColorHex(result);
 }
 void setPixelAA(int x, int y, int c, struct my_state *state, void *data) {
    draw_pixel(x, y, c / 255.0, state, data);
@@ -179,9 +148,7 @@ void setPixelColor(int x, int y, int c, struct my_state *state, void *data) {
    if (x < 0 || x >= state->width || y < 0 || y >= state->height) {
       return;
    }
-   int alpha = (c & 0x000000ff);
-   // printf("%f\n", (alpha) / 255.0);
-   draw_pixel(x, y, (alpha) / 255.0, state, data);
+   draw_pixel(x, y, (c & 0x000000ff) / 255.0, state, data);
 }
 int max(int a, int b) { return a > b ? a : b; }
 void plotLineAA(int x0, int y0, int x1, int y1, struct my_state *state, void *data, int wd) {
@@ -315,58 +282,36 @@ void draw_text_buffer(struct my_state *state, void *data, char *text) {
          FT_Get_Kerning(state->face, previous, glyph_index, FT_KERNING_DEFAULT, &delta);
          pen_x += delta.x >> 6;
       }
-
-      if (error)
-         fprintf(stderr, "sussy baka");
-      error =
-          FT_Load_Glyph(state->face, FT_Get_Char_Index(state->face, text[i]), 0);
-      if (error)
-         fprintf(stderr, "sussy baka 2");
-      error = FT_Render_Glyph(state->face->glyph, FT_RENDER_MODE_LCD);
-      if (error)
-         continue; /* ignore errors */
+      FTCHECK(FT_Load_Glyph(state->face, FT_Get_Char_Index(state->face, text[i]), 0), "loading glyph");
+      FTCHECK(FT_Render_Glyph(state->face->glyph, FT_RENDER_MODE_LCD), "rendering glyph");
 
       int lcd_ww = slot->bitmap.width / 3;
       int k = 0;
       int z = 0;
       int rr = slot->bitmap.rows;
-
-      Color fg = {188, 188, 196};
-      Color bg = {27, 31, 35};
-      fg = apply_gama(fg);
-      bg = apply_gama(bg);
+      Color fg = getColorFromHex(colorsGamma[FOREG]);
+      Color bg = getColorFromHex(colorsGamma[BACKG]);
       for (int i = 0; i < rr * lcd_ww; i++, z += 3) {
          int p = i % lcd_ww;
-         Color result;
-         result.r = ((uint32_t)slot->bitmap.buffer[z] / 255.0) * fg.r +
-                    (1 - ((uint32_t)slot->bitmap.buffer[z]) / 255.0) * bg.r;
-         result.g = ((uint32_t)slot->bitmap.buffer[z + 1] / 255.0) * fg.g +
-                    (1 - ((uint32_t)slot->bitmap.buffer[z + 1]) / 255.0) * bg.g;
-         result.b = ((uint32_t)slot->bitmap.buffer[z + 2] / 255.0) * fg.b +
-                    (1 - ((uint32_t)slot->bitmap.buffer[z + 2]) / 255.0) * bg.b;
-         // // aply the inverse gama correction
+         Color result = blendLCD(fg, bg, slot, z);
          result = apply_inverse_gama(result);
          if (i % lcd_ww == 0) {
             k++;
             z += slot->bitmap.pitch - slot->bitmap.width;
-            // z -= 1;
          }
          int32_t xoff = slot->metrics.horiBearingX >> 6;
          int32_t yoff = -(slot->metrics.horiBearingY >> 6);
          int yoff_base = yoff + (state->face->size->metrics.ascender >> 6) +
                          (state->face->size->metrics.descender >> 6) + 2;
          ((uint32_t *)data)[p + (k + yoff_base) * width + pen_x +
-                            slot->bitmap_left + state->offset + xoff] =
-             (0xFF << 24) | ((uint8_t)result.r << 16) | ((uint8_t)result.g << 8) |
-             (uint8_t)result.b;
+                            slot->bitmap_left + state->offset + xoff] = getColorHex(result);
       }
       /* increment pen position */
       // printf("advance %d\n", slot->metrics.horiAdvance >> 6);
       pen_x += slot->metrics.horiAdvance >> 6;
    }
 }
-void draw_rect(int x, int y, int width, int height, struct my_state *state,
-               void *data, int radius, int thickness) {
+void draw_rect(int x, int y, int width, int height, uint16_t radius, uint16_t thickness, bool filled, void *data, struct my_state *state) {
    // draw a rectangle with rounded corners using the plot_line function and the bezier function
    int x0 = x;
    int y0 = y;
@@ -374,30 +319,80 @@ void draw_rect(int x, int y, int width, int height, struct my_state *state,
    int y1 = y + height;
    int offset = state->offset;
    int f_thickness = ceil(thickness / 2.0) - 1;
-   plotLineAA(x0 + radius, y0, x1 - radius, y0, state, data, thickness);
-   plotLineAA(x0 + radius, y1, x1 - radius, y1, state, data, thickness);
-   plotLineAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y1 - radius, state, data, thickness);
-   plotLineAA(x1, y0 + radius - f_thickness, x1, y1 - radius, state, data, thickness);
+   if (radius >= 3) {
+      plotLineAA(x0 + radius, y0, x1 - radius, y0, state, data, thickness);
+      plotLineAA(x0 + radius, y1, x1 - radius, y1, state, data, thickness);
+      plotLineAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y1 - radius, state, data, thickness);
+      plotLineAA(x1, y0 + radius - f_thickness, x1, y1 - radius, state, data, thickness);
 
-   plotQuadRationalBezierSegAA(x0, y0 + radius - f_thickness, x0, y0 - f_thickness, x0 + radius, y0 - f_thickness, 1, 1, state, data);
-   plotQuadRationalBezierSegAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y0, x0 + radius, y0, 1, 1, state, data);
+      plotQuadRationalBezierSegAA(x0, y0 + radius - f_thickness, x0, y0 - f_thickness, x0 + radius, y0 - f_thickness, 1, 1, state, data);
+      plotQuadRationalBezierSegAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y0, x0 + radius, y0, 1, 1, state, data);
 
-   plotQuadRationalBezierSegAA(x1 - f_thickness, y0 + radius - f_thickness, x1 - f_thickness, y0, x1 - radius, y0, 1, 1, state, data);
-   plotQuadRationalBezierSegAA(x1, y0 + radius - f_thickness, x1, y0 - f_thickness, x1 - radius, y0 - f_thickness, 1, 1, state, data);
+      plotQuadRationalBezierSegAA(x1 - f_thickness, y0 + radius - f_thickness, x1 - f_thickness, y0, x1 - radius, y0, 1, 1, state, data);
+      plotQuadRationalBezierSegAA(x1, y0 + radius - f_thickness, x1, y0 - f_thickness, x1 - radius, y0 - f_thickness, 1, 1, state, data);
 
-   plotQuadRationalBezierSegAA(x0 + f_thickness, y1 - radius, x0 + f_thickness, y1 - f_thickness, x0 + radius, y1 - f_thickness, 1, 1, state, data);
-   plotQuadRationalBezierSegAA(x0, y1 - radius, x0, y1, x0 + radius, y1, 1, 1, state, data);
+      plotQuadRationalBezierSegAA(x0 + f_thickness, y1 - radius, x0 + f_thickness, y1 - f_thickness, x0 + radius, y1 - f_thickness, 1, 1, state, data);
+      plotQuadRationalBezierSegAA(x0, y1 - radius, x0, y1, x0 + radius, y1, 1, 1, state, data);
 
-   plotQuadRationalBezierSegAA(x1 - f_thickness, y1 - radius, x1 - f_thickness, y1 - f_thickness, x1 - radius, y1 - f_thickness, 1, 1, state, data);
-   plotQuadRationalBezierSegAA(x1, y1 - radius, x1, y1, x1 - radius, y1, 1, 1, state, data);
-  
-   for (int i = 1; i < f_thickness; i += 1) {
-      plotQuadRationalBezierSegAA(x0 + i, y0 + radius - f_thickness, x0 + i, y0 - f_thickness + i, x0 + radius, y0 - f_thickness + i, 1, 0, state, data);
-      plotQuadRationalBezierSegAA(x1 - i, y0 + radius - f_thickness, x1 - i, y0 - f_thickness + i, x1 - radius, y0 - f_thickness + i, 1, 0, state, data);
-      plotQuadRationalBezierSegAA(x0 + i, y1 - radius, x0 + i, y1 - i, x0 + radius, y1 - i, 1, 0, state, data);
-      plotQuadRationalBezierSegAA(x1 - i, y1 - radius, x1 - i, y1 - i, x1 - radius, y1 - i, 1, 0, state, data);
+      plotQuadRationalBezierSegAA(x1 - f_thickness, y1 - radius, x1 - f_thickness, y1 - f_thickness, x1 - radius, y1 - f_thickness, 1, 1, state, data);
+      plotQuadRationalBezierSegAA(x1, y1 - radius, x1, y1, x1 - radius, y1, 1, 1, state, data);
+
+      for (int i = 1; i < f_thickness; i += 1) {
+         plotQuadRationalBezierSegAA(x0 + i, y0 + radius - f_thickness, x0 + i, y0 - f_thickness + i, x0 + radius, y0 - f_thickness + i, 1, 0, state, data);
+         plotQuadRationalBezierSegAA(x1 - i, y0 + radius - f_thickness, x1 - i, y0 - f_thickness + i, x1 - radius, y0 - f_thickness + i, 1, 0, state, data);
+         plotQuadRationalBezierSegAA(x0 + i, y1 - radius, x0 + i, y1 - i, x0 + radius, y1 - i, 1, 0, state, data);
+         plotQuadRationalBezierSegAA(x1 - i, y1 - radius, x1 - i, y1 - i, x1 - radius, y1 - i, 1, 0, state, data);
+      }
+   }
+   if (filled)
+      drawRoundedRectFilled(x0 + 1, y0 - 1, x1 - 1, y1 - 1, radius - radius/6, state, data);
+}
+void fillRect(int x, int y, int width, int height, struct my_state *state,
+              void *data) {
+   for (int i = y; i <= y + height; i++) {
+      for (int j = x; j < x + width; j++) {
+         draw_pixel(j, i, 0, state, data);
+      }
    }
 }
+void drawRoundedRectFilled(int x1, int y1, int x2, int y2, int radius, struct my_state *state, void *data) {  // draw a rounded rectangle with  Bresenham's algorithm and fill it
+   int x, y;
+   if (x1 > x2) {
+      x = x1;
+      x1 = x2;
+      x2 = x;
+   }
+   if (y1 > y2) {
+      y = y1;
+      y1 = y2;
+      y2 = y;
+   }
+   int cx1 = x1 + radius;
+   int cx2 = x2 - radius;
+   int cy1 = y1 + radius;
+   int cy2 = y2 - radius;
+   // fillRect(x1, cy1, x2 - x1, cy2, state, data);
+   fillRect(x1, cy1, x2 - x1, cy2 - cy1, state, data);
+   int r = radius;
+   x = r;
+   y = 0;
+   int dx, dy, Error = 0;
+   while (y <= x) {
+      dy = 1 + 2 * y;
+      y++;
+      Error -= dy;
+      if (Error < 0) {
+         dx = 1 - 2 * x;
+         x--;
+         Error -= dx;
+      }
+      plotLineAA(cx1 - x, cy1 - y, cx2 + x, cy1 - y, state, data, 1);
+      plotLineAA(cx1 - y, cy1 - x, cx2 + y, cy1 - x, state, data, 1);
+      plotLineAA(cx1 - x, cy2 + y, cx2 + x, cy2 + y, state, data, 1);
+      plotLineAA(cx1 - y, cy2 + x, cx2 + y, cy2 + x, state, data, 1);
+   }
+}
+
 // unction that draws mutiple beziers together to give the impression of thickness
 static struct wl_buffer *draw_frame(struct my_state *state) {
    struct wl_shm_pool *pool;
@@ -406,7 +401,7 @@ static struct wl_buffer *draw_frame(struct my_state *state) {
    int stride = width * 4;
    int size = stride * height;
    static int thickness = 0;
-   thickness+=1;
+   thickness += 1;
    int fd = allocate_shm_file(size);
    if (fd < 0) {
       fprintf(stderr, "creating a buffer file for %d B failed: %m\n", size);
@@ -430,11 +425,13 @@ static struct wl_buffer *draw_frame(struct my_state *state) {
          ((uint32_t *)data)[y * width + x] = 0xff1b1f23;
       }
    }
-   // draw_text_buffer(state, data, "24/10/2024 Imi place sa ma joc cu pisicile");
-   draw_rect(100, 100, 300, 200, state, data, 30, thickness);
+   draw_text_buffer(state, data, "24/10/2024 Imi place sa ma joc cu pisicile");
+   // drawRoundedRectFilled(100, 100, 400, 300, 30, state, data);
+   // fillRect(100, 100, 300, 200, state, data);
+   draw_rect(100, 100, 500, 200, thickness + 3, 5, 1, data, state);
    // plotQuadRationalBezierSegAA(100, 100, 300, 100, 300, 300, 0.1, state, data);
    // plotQuadRationalBezierSegAA(112, 100, 312, 100, 312, 300, 0.1, state, data);
-   // plotLineAA(100, 100, 300, 100, state, data);
+   // plotLineAA(100, 100, 300, 300, state, data, 1);
    // int offset = 0;
    // plot_line(0 + offset, 0 + offset, 500, 500, data, width);
    // plot_line(0 + offset, 0 + offset, 500, 0 + offset, data, width);
@@ -806,15 +803,7 @@ void setup(struct my_state *state) {
               "opened or read, or that it is broken");
    }
    error = FT_Set_Char_Size(state->face, 17 * 64, 0, 96, 96);
-   // if (error)
-   //   fprintf(stderr, "sussy baka");
-   // error = FT_Load_Glyph(state->face, FT_Get_Char_Index(state->face, 'A'), 0);
-   // if (error)
-   //   fprintf(stderr, "sussy baka 2");
-   // error = FT_Render_Glyph(state->face->glyph, FT_RENDER_MODE_LCD);
-   // if (error)
-   //   fprintf(stderr, "sussy baka 3");
-   // printf("sssss %u\n", state->face->glyph->bitmap.width);
+   precompute_gama();
 }
 int main(int argc, char const *argv[]) {
    struct my_state state = {0};
@@ -850,7 +839,7 @@ int main(int argc, char const *argv[]) {
 
    while (wl_display_dispatch(display) != -1) {
       // This space intentionally left blank
-      printf("version %s", sft_version());
+      // printf("version %s", sft_version());
    }
 
    wl_display_disconnect(display);
