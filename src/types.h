@@ -56,18 +56,19 @@ struct pointer_event {
    uint32_t axis_source;
 };
 
-enum Colors {
+typedef enum Colors {
    BACKG,
    FOREG,
    BORDER,
    BOX,
-};
+} Colors;
 
 static const uint64_t colors[4] = {
-    [BACKG] = 0xff1b1f23,
-    [FOREG] = 0xffffffff,
-    [BORDER] = 0xFF0000FF,
-    [BOX] = 0xFF00FF00,
+    [BACKG] = 0xff0e0e10,
+   //  [BACKG] = 0xFFFF0000,
+    [FOREG] = 0xffc6c5cf,
+    [BORDER] = 0xFFc2c5dc,
+    [BOX] = 0xFF1f1f23,
 };
 static uint64_t colorsGamma[4] = {0};
 static const uint8_t log_level = 0;  

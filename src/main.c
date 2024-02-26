@@ -120,6 +120,7 @@ struct my_state {
    FT_Library library;
    FT_Face face;
    int offset;
+   Color currColor;
 };
 static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer) {
    /* Sent by the compositor when it's no longer using this buffer */
@@ -135,9 +136,9 @@ void draw_pixel(int x, int y, float intensity, struct my_state *state, void *dat
       return;
    }
    uint32_t *pixel = &((uint32_t *)data)[y * state->width + x];
-   Color fg = getColorFromHex(colorsGamma[FOREG]);
-   Color bg = getColorFromHex(colorsGamma[BACKG]);
-   Color result = blend(fg, bg, 1 - intensity);
+   Color bg = getColorFromHex(*pixel);
+   bg = apply_gama(bg);
+   Color result = blend(state->currColor, bg, 1 - intensity);
    result = apply_inverse_gama(result);
    *pixel = getColorHex(result);
 }
@@ -145,9 +146,6 @@ void setPixelAA(int x, int y, int c, struct my_state *state, void *data) {
    draw_pixel(x, y, c / 255.0, state, data);
 }
 void setPixelColor(int x, int y, int c, struct my_state *state, void *data) {
-   if (x < 0 || x >= state->width || y < 0 || y >= state->height) {
-      return;
-   }
    draw_pixel(x, y, (c & 0x000000ff) / 255.0, state, data);
 }
 int max(int a, int b) { return a > b ? a : b; }
@@ -311,20 +309,34 @@ void draw_text_buffer(struct my_state *state, void *data, char *text) {
       pen_x += slot->metrics.horiAdvance >> 6;
    }
 }
-void draw_rect(int x, int y, int width, int height, uint16_t radius, uint16_t thickness, bool filled, void *data, struct my_state *state) {
+void draw_rect(int x, int y, int width, int height, uint16_t radius, uint16_t thickness, bool filled, Colors backg, Colors border, void *data, struct my_state *state) {
    // draw a rectangle with rounded corners using the plot_line function and the bezier function
+   // if(filled) {thickness = 1; radius += 3;}
+   if (filled && radius == 0) {
+      state->currColor = getColorFromHex(colorsGamma[backg]);
+      fillRect(x, y, width, height, state, data);
+      if (backg == border)
+         return;
+   }
+   // print border color in hex
+   printf("border color: %x\n", border);
+   
    int x0 = x;
    int y0 = y;
    int x1 = x + width;
    int y1 = y + height;
    int offset = state->offset;
    int f_thickness = ceil(thickness / 2.0) - 1;
-   if (radius >= 3) {
-      plotLineAA(x0 + radius, y0, x1 - radius, y0, state, data, thickness);
-      plotLineAA(x0 + radius, y1, x1 - radius, y1, state, data, thickness);
-      plotLineAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y1 - radius, state, data, thickness);
-      plotLineAA(x1, y0 + radius - f_thickness, x1, y1 - radius, state, data, thickness);
-
+   if (filled && radius > 0) {
+      state->currColor = getColorFromHex(colorsGamma[backg]);
+      drawRoundedRectFilled(x0 + 1, y0 - 1, x1 - 1, y1 - 1, radius - radius / 6, state, data);
+   }
+   state->currColor = getColorFromHex(colorsGamma[border]);
+   plotLineAA(x0 + radius, y0, x1 - radius, y0, state, data, thickness);
+   plotLineAA(x0 + radius, y1, x1 - radius, y1, state, data, thickness);
+   plotLineAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y1 - radius, state, data, thickness);
+   plotLineAA(x1, y0 + radius - f_thickness, x1, y1 - radius, state, data, thickness);
+   if (radius > 0) {
       plotQuadRationalBezierSegAA(x0, y0 + radius - f_thickness, x0, y0 - f_thickness, x0 + radius, y0 - f_thickness, 1, 1, state, data);
       plotQuadRationalBezierSegAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y0, x0 + radius, y0, 1, 1, state, data);
 
@@ -344,13 +356,12 @@ void draw_rect(int x, int y, int width, int height, uint16_t radius, uint16_t th
          plotQuadRationalBezierSegAA(x1 - i, y1 - radius, x1 - i, y1 - i, x1 - radius, y1 - i, 1, 0, state, data);
       }
    }
-   if (filled)
-      drawRoundedRectFilled(x0 + 1, y0 - 1, x1 - 1, y1 - 1, radius - radius/6, state, data);
+   
 }
 void fillRect(int x, int y, int width, int height, struct my_state *state,
               void *data) {
    for (int i = y; i <= y + height; i++) {
-      for (int j = x; j < x + width; j++) {
+      for (int j = x; j <= x + width; j++) {
          draw_pixel(j, i, 0, state, data);
       }
    }
@@ -371,8 +382,7 @@ void drawRoundedRectFilled(int x1, int y1, int x2, int y2, int radius, struct my
    int cx2 = x2 - radius;
    int cy1 = y1 + radius;
    int cy2 = y2 - radius;
-   // fillRect(x1, cy1, x2 - x1, cy2, state, data);
-   fillRect(x1, cy1, x2 - x1, cy2 - cy1, state, data);
+   fillRect(x1, cy1, x2 - x1, cy2 - cy1 + 2, state, data);
    int r = radius;
    x = r;
    y = 0;
@@ -387,9 +397,9 @@ void drawRoundedRectFilled(int x1, int y1, int x2, int y2, int radius, struct my
          Error -= dx;
       }
       plotLineAA(cx1 - x, cy1 - y, cx2 + x, cy1 - y, state, data, 1);
-      plotLineAA(cx1 - y, cy1 - x, cx2 + y, cy1 - x, state, data, 1);
-      plotLineAA(cx1 - x, cy2 + y, cx2 + x, cy2 + y, state, data, 1);
-      plotLineAA(cx1 - y, cy2 + x, cx2 + y, cy2 + x, state, data, 1);
+      // plotLineAA(cx1 - y, cy1 - x, cx2 + y, cy1 - x, state, data, 1);
+      plotLineAA(cx1 - x, cy2 + y + 1, cx2 + x, cy2 + y + 1, state, data, 1);
+      plotLineAA(cx1 - y, cy2 + x + 1, cx2 + y, cy2 + x + 1, state, data, 1);
    }
 }
 
@@ -422,13 +432,14 @@ static struct wl_buffer *draw_frame(struct my_state *state) {
    /* fill backgrond with color*/
    for (int y = 0; y < height; ++y) {
       for (int x = 0; x < width; ++x) {
-         ((uint32_t *)data)[y * width + x] = 0xff1b1f23;
+         ((uint32_t *)data)[y * width + x] = colors[BACKG];
       }
    }
    draw_text_buffer(state, data, "24/10/2024 Imi place sa ma joc cu pisicile");
    // drawRoundedRectFilled(100, 100, 400, 300, 30, state, data);
    // fillRect(100, 100, 300, 200, state, data);
-   draw_rect(100, 100, 500, 200, thickness + 3, 5, 1, data, state);
+   draw_rect(100, 100, 500, 200, 10, 5, 1, BOX, BORDER, data, state);
+   draw_rect(100, 350, 500, 200, 10, 5, 1, BOX, BORDER, data, state);
    // plotQuadRationalBezierSegAA(100, 100, 300, 100, 300, 300, 0.1, state, data);
    // plotQuadRationalBezierSegAA(112, 100, 312, 100, 312, 300, 0.1, state, data);
    // plotLineAA(100, 100, 300, 300, state, data, 1);
@@ -780,29 +791,15 @@ static const struct wl_registry_listener registry_listener = {
 };
 static const struct wl_shm_listener shm_listener = {
     .format = shm_handle_global,
-    //   .global_remove = shm_handle_global_remove,
+      // .global_remove = shm_handle_global_remove,
 };
 void setup(struct my_state *state) {
    uint32_t cp = 0x1F4A9;
-   FT_Error error = 0;
-   FT_Init_FreeType(&state->library);
-   if (error) {
-      fprintf(stderr, "Can't initialize freetype\n");
-      return;
-   }
-   error = FT_New_Face(state->library,
+   FTCHECK(FT_Init_FreeType(&state->library), "initializing freetype");
+   FTCHECK(FT_New_Face(state->library,
                        "/usr/share/fonts/TTF/JetBrainsMono-Regular_kern.ttf", 0,
-                       &state->face);
-   if (error == FT_Err_Unknown_File_Format) {
-      fprintf(stderr,
-              "font file could be opened and read, but it appears that "
-              "its font format is unsupported");
-   } else if (error) {
-      fprintf(stderr,
-              " another error code means that the font file could not be "
-              "opened or read, or that it is broken");
-   }
-   error = FT_Set_Char_Size(state->face, 17 * 64, 0, 96, 96);
+                       &state->face), "loading font");
+   FTCHECK(FT_Set_Char_Size(state->face, 17 * 64, 0, 96, 96), "setting font size");
    precompute_gama();
 }
 int main(int argc, char const *argv[]) {
@@ -821,7 +818,6 @@ int main(int argc, char const *argv[]) {
    wl_display_roundtrip(display);
 
    state.surface = wl_compositor_create_surface(state.compositor);
-
    state.xdg_surface =
        xdg_wm_base_get_xdg_surface(state.xdg_wm_base, state.surface);
    state.xdg_positioner = xdg_wm_base_create_positioner(state.xdg_wm_base);
@@ -830,8 +826,6 @@ int main(int argc, char const *argv[]) {
    xdg_surface_add_listener(state.xdg_surface, &xdg_surface_listener, &state);
    state.xdg_toplevel = xdg_surface_get_toplevel(state.xdg_surface);
    xdg_toplevel_add_listener(state.xdg_toplevel, &xdg_toplevel_listener, &state);
-   // state.xdg_popup = xdg_surface_get_popup(state.xdg_surface,  ,
-   // state.xdg_positioner);
    xdg_toplevel_set_title(state.xdg_toplevel, "Hello, world!");
    wl_surface_commit(state.surface);
    state.xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
