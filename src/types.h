@@ -18,11 +18,11 @@
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
 
-#include "../include/xdg-shell-client-protocol.h"
+#include "../xml/xdg-shell-client-protocol.h"
+#include "../xml/zwlr-protocol.h"
 #include "config.h"
 #include FT_FREETYPE_H
-#define ALPHA 1
-#define BG 0xFF000000
+
 
 typedef struct Color {
    float r;

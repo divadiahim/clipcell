@@ -1,7 +1,6 @@
 #include "types.h"
 // gama correction
-float gama = 1.8f;
-float inverse_gama = 1.8f;
+
 
 Color apply_gama(Color color) {
    // use this formula  255 * POWER(gammavalue / 255,2.2)
@@ -79,7 +78,6 @@ static int create_shm_file(void) {
    } while (retries > 0 && errno == EEXIST);
    return -1;
 }
-// scanf("%d", &n);
 int allocate_shm_file(size_t size) {
    int fd = create_shm_file();
    if (fd < 0)
@@ -97,9 +95,12 @@ int allocate_shm_file(size_t size) {
 /*wayland*/
 struct my_state {
    struct wl_display *display;
+   struct wl_output *output;
    struct wl_registry *registry;
    struct wl_compositor *compositor;
    struct wl_surface *surface;
+   struct zwlr_layer_shell_v1 *layer_shell;
+   struct zwlr_layer_surface_v1 *layer_surface;
    struct wl_shell *shell;
    struct wl_shm *shm;
    struct wl_shell_surface *shell_surface;
@@ -305,22 +306,17 @@ void draw_text_buffer(struct my_state *state, void *data, char *text) {
                             slot->bitmap_left + state->offset + xoff] = getColorHex(result);
       }
       /* increment pen position */
-      // printf("advance %d\n", slot->metrics.horiAdvance >> 6);
       pen_x += slot->metrics.horiAdvance >> 6;
    }
 }
 void draw_rect(int x, int y, int width, int height, uint16_t radius, uint16_t thickness, bool filled, Colors backg, Colors border, void *data, struct my_state *state) {
    // draw a rectangle with rounded corners using the plot_line function and the bezier function
-   // if(filled) {thickness = 1; radius += 3;}
    if (filled && radius == 0) {
       state->currColor = getColorFromHex(colorsGamma[backg]);
       fillRect(x, y, width, height, state, data);
       if (backg == border)
          return;
    }
-   // print border color in hex
-   printf("border color: %x\n", border);
-   
    int x0 = x;
    int y0 = y;
    int x1 = x + width;
@@ -435,57 +431,13 @@ static struct wl_buffer *draw_frame(struct my_state *state) {
          ((uint32_t *)data)[y * width + x] = colors[BACKG];
       }
    }
-   draw_text_buffer(state, data, "24/10/2024 Imi place sa ma joc cu pisicile");
-   // drawRoundedRectFilled(100, 100, 400, 300, 30, state, data);
-   // fillRect(100, 100, 300, 200, state, data);
-   draw_rect(100, 100, 500, 200, 10, 5, 1, BOX, BORDER, data, state);
-   draw_rect(100, 350, 500, 200, 10, 5, 1, BOX, BORDER, data, state);
-   // plotQuadRationalBezierSegAA(100, 100, 300, 100, 300, 300, 0.1, state, data);
-   // plotQuadRationalBezierSegAA(112, 100, 312, 100, 312, 300, 0.1, state, data);
-   // plotLineAA(100, 100, 300, 300, state, data, 1);
-   // int offset = 0;
-   // plot_line(0 + offset, 0 + offset, 500, 500, data, width);
-   // plot_line(0 + offset, 0 + offset, 500, 0 + offset, data, width);
-   // plot_line(500, 500, 500, 0 + offset, data, width);
+   draw_text_buffer(state, data, "Vreau sa ma sinucid");
+   draw_rect(BOX_PADDING, 50, state->width - 2*BOX_PADDING, 80, 10, 5, 1, BOX, BORDER, data, state);
+   draw_rect(BOX_PADDING, BOX_SPACING + 80 + 50, state->width - 2*BOX_PADDING, 80, 10, 5, 1, BOX, BORDER, data, state);
    munmap(data, size);
    wl_buffer_add_listener(buffer, &wl_buffer_listener, NULL);
    return buffer;
 }
-static void xdg_toplevel_configure(void *data,
-                                   struct xdg_toplevel *xdg_toplevel,
-                                   int32_t width, int32_t height,
-                                   struct wl_array *states) {
-   struct my_state *state = data;
-   if (width == 0 || height == 0) {
-      /* Compositor is deferring to us */
-      return;
-   }
-   state->width = width;
-   state->height = height;
-}
-
-static void xdg_toplevel_close(void *data, struct xdg_toplevel *toplevel) {
-   struct my_state *state = data;
-   state->closed = true;
-}
-
-static const struct xdg_toplevel_listener xdg_toplevel_listener = {
-    .configure = xdg_toplevel_configure,
-    .close = xdg_toplevel_close,
-};
-
-static void xdg_surface_configure(void *data, struct xdg_surface *xdg_surface,
-                                  uint32_t serial) {
-   struct my_state *state = data;
-   xdg_surface_ack_configure(xdg_surface, serial);
-   struct wl_buffer *buffer = draw_frame(state);
-   wl_surface_attach(state->surface, buffer, 0, 0);
-   wl_surface_damage(state->surface, 0, 0, 1024, 1024);
-   wl_surface_commit(state->surface);
-}
-static const struct xdg_surface_listener xdg_surface_listener = {
-    .configure = xdg_surface_configure,
-};
 static void xdg_wm_base_ping(void *data, struct xdg_wm_base *xdg_wm_base,
                              uint32_t serial) {
    xdg_wm_base_pong(xdg_wm_base, serial);
@@ -692,6 +644,9 @@ static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
    const char *action =
        state == WL_KEYBOARD_KEY_STATE_PRESSED ? "press" : "release";
    fprintf(stderr, "key %s: sym: %-12s (%d), ", action, buf, sym);
+   if(state == WL_KEYBOARD_KEY_STATE_PRESSED && sym == XKB_KEY_Escape) {
+      client_state->closed = true;
+   }
    xkb_state_key_get_utf8(client_state->xkb_state, keycode, buf, sizeof(buf));
    fprintf(stderr, "utf8: '%s'\n", buf);
    client_state->offset++;
@@ -774,7 +729,10 @@ static void registry_handle_global(void *data, struct wl_registry *registry,
       state->wl_seat = wl_registry_bind(registry, name, &wl_seat_interface, 9);
       wl_seat_add_listener(state->wl_seat, &wl_seat_listener, state);
    }
+   else if(strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
+      state->layer_shell = wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface, 1);
    printf("Got a registry event for %s id %d\n", interface, name);
+   }
 }
 static void registry_handle_global_remove(void *data,
                                           struct wl_registry *registry,
@@ -793,19 +751,37 @@ static const struct wl_shm_listener shm_listener = {
     .format = shm_handle_global,
       // .global_remove = shm_handle_global_remove,
 };
+static void layer_surface_configure(void *data,
+                                    struct zwlr_layer_surface_v1 *surface,
+                                    uint32_t serial, uint32_t width, uint32_t height) {
+   struct my_state *state = data;
+   zwlr_layer_surface_v1_ack_configure(surface, serial);
+   state->width = width;
+   state->height = height;
+   struct wl_buffer *buffer = draw_frame(state);
+   wl_surface_attach(state->surface, buffer, 0, 0);
+   wl_surface_damage(state->surface, 0, 0, width, height);
+   wl_surface_commit(state->surface);
+}
+static void layer_surface_closed(void *data,
+                                 struct zwlr_layer_surface_v1 *surface) {
+   struct my_state *state = data;
+   state->closed = true;
+}
+static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
+    .configure = layer_surface_configure,
+    .closed = layer_surface_closed,
+};
 void setup(struct my_state *state) {
-   uint32_t cp = 0x1F4A9;
    FTCHECK(FT_Init_FreeType(&state->library), "initializing freetype");
    FTCHECK(FT_New_Face(state->library,
                        "/usr/share/fonts/TTF/JetBrainsMono-Regular_kern.ttf", 0,
                        &state->face), "loading font");
-   FTCHECK(FT_Set_Char_Size(state->face, 17 * 64, 0, 96, 96), "setting font size");
+   FTCHECK(FT_Set_Char_Size(state->face, 13 * 64, 0, 96, 96), "setting font size");
    precompute_gama();
 }
 int main(int argc, char const *argv[]) {
    struct my_state state = {0};
-   state.width = 1024;
-   state.height = 1024;
    struct wl_display *display = wl_display_connect(NULL);
    if (!display) {
       fprintf(stderr, "Can't connect to display\n");
@@ -818,15 +794,12 @@ int main(int argc, char const *argv[]) {
    wl_display_roundtrip(display);
 
    state.surface = wl_compositor_create_surface(state.compositor);
-   state.xdg_surface =
-       xdg_wm_base_get_xdg_surface(state.xdg_wm_base, state.surface);
-   state.xdg_positioner = xdg_wm_base_create_positioner(state.xdg_wm_base);
-   xdg_positioner_set_size(state.xdg_positioner, 1280, 640);
-   xdg_positioner_set_anchor_rect(state.xdg_positioner, 0, 0, 1280, 640);
-   xdg_surface_add_listener(state.xdg_surface, &xdg_surface_listener, &state);
-   state.xdg_toplevel = xdg_surface_get_toplevel(state.xdg_surface);
-   xdg_toplevel_add_listener(state.xdg_toplevel, &xdg_toplevel_listener, &state);
-   xdg_toplevel_set_title(state.xdg_toplevel, "Hello, world!");
+   assert(state.layer_shell);
+   state.layer_surface = zwlr_layer_shell_v1_get_layer_surface(state.layer_shell, state.surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "clipcell");
+   zwlr_layer_surface_v1_add_listener(state.layer_surface, &layer_surface_listener, &state);
+   zwlr_layer_surface_v1_set_anchor(state.layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP);
+   zwlr_layer_surface_v1_set_size(state.layer_surface, 300, 380);
+   zwlr_layer_surface_v1_set_keyboard_interactivity(state.layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
    wl_surface_commit(state.surface);
    state.xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
    wl_shm_add_listener(state.shm, &shm_listener, &state);
@@ -834,6 +807,10 @@ int main(int argc, char const *argv[]) {
    while (wl_display_dispatch(display) != -1) {
       // This space intentionally left blank
       // printf("version %s", sft_version());
+      if(state.closed) {
+         break;
+      }
+
    }
 
    wl_display_disconnect(display);
