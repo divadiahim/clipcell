@@ -1,6 +1,7 @@
+#include <stdint.h>
+
 #include "types.h"
 // gama correction
-
 
 Color apply_gama(Color color) {
    // use this formula  255 * POWER(gammavalue / 255,2.2)
@@ -101,9 +102,7 @@ struct my_state {
    struct wl_surface *surface;
    struct zwlr_layer_shell_v1 *layer_shell;
    struct zwlr_layer_surface_v1 *layer_surface;
-   struct wl_shell *shell;
    struct wl_shm *shm;
-   struct wl_shell_surface *shell_surface;
    struct xdg_wm_base *xdg_wm_base;
    struct xdg_surface *xdg_surface;
    struct xdg_toplevel *xdg_toplevel;
@@ -116,7 +115,10 @@ struct my_state {
    struct xkb_state *xkb_state;
    struct xkb_context *xkb_context;
    struct xkb_keymap *xkb_keymap;
+   struct repeatInfo rinfo;
+   __timer_t timer;
    int width, height;
+   uint32_t repeat_key;
    bool closed;
    FT_Library library;
    FT_Face face;
@@ -303,7 +305,7 @@ void draw_text_buffer(struct my_state *state, void *data, char *text) {
          int yoff_base = yoff + (state->face->size->metrics.ascender >> 6) +
                          (state->face->size->metrics.descender >> 6) + 2;
          ((uint32_t *)data)[p + (k + yoff_base) * width + pen_x +
-                            slot->bitmap_left + state->offset + xoff] = getColorHex(result);
+                            slot->bitmap_left + xoff] = getColorHex(result);
       }
       /* increment pen position */
       pen_x += slot->metrics.horiAdvance >> 6;
@@ -352,7 +354,6 @@ void draw_rect(int x, int y, int width, int height, uint16_t radius, uint16_t th
          plotQuadRationalBezierSegAA(x1 - i, y1 - radius, x1 - i, y1 - i, x1 - radius, y1 - i, 1, 0, state, data);
       }
    }
-   
 }
 void fillRect(int x, int y, int width, int height, struct my_state *state,
               void *data) {
@@ -398,7 +399,32 @@ void drawRoundedRectFilled(int x1, int y1, int x2, int y2, int radius, struct my
       plotLineAA(cx1 - y, cy2 + x + 1, cx2 + y, cy2 + x + 1, state, data, 1);
    }
 }
-
+static struct wl_buffer *empty_buffer(struct my_state *state) {
+   struct wl_shm_pool *pool;
+   int width = state->width;
+   int height = state->height;
+   int stride = width * 4;
+   int size = stride * height;
+   int fd = allocate_shm_file(size);
+   if (fd < 0) {
+      fprintf(stderr, "creating a buffer file for %d B failed: %m\n", size);
+      exit(1);
+   }
+   void *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+   if (data == MAP_FAILED) {
+      fprintf(stderr, "mmap failed: %m\n");
+      close(fd);
+      exit(1);
+   }
+   pool = wl_shm_create_pool(state->shm, fd, size);
+   struct wl_buffer *buffer = wl_shm_pool_create_buffer(
+       pool, 0, width, height, stride, WL_SHM_FORMAT_ARGB8888);
+   wl_shm_pool_destroy(pool);
+   close(fd);
+   munmap(data, size);
+   wl_buffer_add_listener(buffer, &wl_buffer_listener, NULL);
+   return buffer;
+}
 // unction that draws mutiple beziers together to give the impression of thickness
 static struct wl_buffer *draw_frame(struct my_state *state) {
    struct wl_shm_pool *pool;
@@ -432,8 +458,8 @@ static struct wl_buffer *draw_frame(struct my_state *state) {
       }
    }
    draw_text_buffer(state, data, "Vreau sa ma sinucid");
-   draw_rect(BOX_PADDING, 50, state->width - 2*BOX_PADDING, 80, 10, 5, 1, BOX, BORDER, data, state);
-   draw_rect(BOX_PADDING, BOX_SPACING + 80 + 50, state->width - 2*BOX_PADDING, 80, 10, 5, 1, BOX, BORDER, data, state);
+   draw_rect(BOX_PADDING, 50, state->width - 2 * BOX_PADDING, 80, 10, 5, 1, BOX, BORDER, data, state);
+   draw_rect(BOX_PADDING, BOX_SPACING + 80 + 50, state->width - 2 * BOX_PADDING, 80, 10, 5, 1, BOX, BORDER, data, state);
    munmap(data, size);
    wl_buffer_add_listener(buffer, &wl_buffer_listener, NULL);
    return buffer;
@@ -519,15 +545,18 @@ static void wl_pointer_axis_discrete(void *data, struct wl_pointer *wl_pointer,
    client_state->pointer_event.axes[axis].valid = true;
    client_state->pointer_event.axes[axis].discrete = discrete;
 }
-
+PointerC pointer_init = {0};
 static void wl_pointer_frame(void *data, struct wl_pointer *wl_pointer) {
    struct my_state *client_state = data;
+   static bool first_frame = true;
    struct pointer_event *event = &client_state->pointer_event;
    fprintf(stderr, "pointer frame @ %d: ", event->time);
 
    if (event->event_mask & POINTER_EVENT_ENTER) {
-      fprintf(stderr, "entered %f, %f ", wl_fixed_to_double(event->surface_x),
-              wl_fixed_to_double(event->surface_y));
+      fprintf(stderr, "entered %d, %d ", wl_fixed_to_int(event->surface_x),
+              wl_fixed_to_int(event->surface_y));
+      pointer_init.x = wl_fixed_to_int(event->surface_x);
+      pointer_init.y = wl_fixed_to_int(event->surface_y);
    }
 
    if (event->event_mask & POINTER_EVENT_LEAVE) {
@@ -632,10 +661,19 @@ static void wl_keyboard_enter(void *data, struct wl_keyboard *wl_keyboard,
    }
 }
 
+void handle_timer(union sigval sv)
+{
+  struct my_state *state = sv.sival_ptr;
+    if (state->repeat_key != -1) {
+      printf("repeat key\n");
+        // Handle the key press event for state->repeat_key
+    }
+}
 static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
                             uint32_t serial, uint32_t time, uint32_t key,
                             uint32_t state) {
    struct my_state *client_state = data;
+   clock_t start = 0;
    char buf[128];
    uint32_t keycode = key + 8;
    xkb_keysym_t sym =
@@ -643,17 +681,36 @@ static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
    xkb_keysym_get_name(sym, buf, sizeof(buf));
    const char *action =
        state == WL_KEYBOARD_KEY_STATE_PRESSED ? "press" : "release";
-   fprintf(stderr, "key %s: sym: %-12s (%d), ", action, buf, sym);
-   if(state == WL_KEYBOARD_KEY_STATE_PRESSED && sym == XKB_KEY_Escape) {
+   if (state == WL_KEYBOARD_KEY_STATE_PRESSED && sym == XKB_KEY_Escape) {
       client_state->closed = true;
+      return;
+   }
+   if (state == WL_KEYBOARD_KEY_STATE_PRESSED) { 
+      // Key was pressed
+      client_state->repeat_key = key;
+
+      // Create a timer
+      // i just found out about this it's so op 
+      struct sigevent sev = {.sigev_notify = SIGEV_THREAD, .sigev_notify_function = handle_timer, .sigev_value.sival_ptr = client_state};
+      timer_create(CLOCK_REALTIME, &sev, &client_state->timer);
+
+      // Start the timer
+      struct itimerspec its = {.it_value.tv_sec = client_state->rinfo.delay / 1000, .it_value.tv_nsec = (client_state->rinfo.delay % 1000) * 1000000, .it_interval.tv_sec = 0, .it_interval.tv_nsec = 1000000000 / client_state->rinfo.rate};
+      timer_settime(client_state->timer, 0, &its, NULL);
+   } else {
+      // Key was released
+      client_state->repeat_key = -1;
+
+      // Stop and destroy the timer
+      timer_delete(client_state->timer);
    }
    xkb_state_key_get_utf8(client_state->xkb_state, keycode, buf, sizeof(buf));
    fprintf(stderr, "utf8: '%s'\n", buf);
-   client_state->offset++;
-   struct wl_buffer *buffer = draw_frame(client_state);
-   wl_surface_attach(client_state->surface, buffer, 0, 0);
-   wl_surface_damage(client_state->surface, 0, 0, 1024, 1024);
-   wl_surface_commit(client_state->surface);
+   // client_state->offset++;
+   // struct wl_buffer *buffer = draw_frame(client_state);
+   // wl_surface_attach(client_state->surface, buffer, 0, 0);
+   // wl_surface_damage(client_state->surface, 0, 0, 1024, 1024);
+   // wl_surface_commit(client_state->surface);
 }
 static void wl_keyboard_leave(void *data, struct wl_keyboard *wl_keyboard,
                               uint32_t serial, struct wl_surface *surface) {
@@ -672,7 +729,11 @@ static void wl_keyboard_modifiers(void *data, struct wl_keyboard *wl_keyboard,
 static void wl_keyboard_repeat_info(void *data, struct wl_keyboard *wl_keyboard,
                                     int32_t rate, int32_t delay) {
    /* Left as an exercise for the reader */
-   printf("rate %d delay %d\n", rate, delay);
+   struct my_state *client_state = data;
+   // wl
+   //     printf("rate %d delay %d\n", rate, delay);
+   client_state->rinfo.rate = rate;
+   client_state->rinfo.delay = delay;
 }
 
 static const struct wl_keyboard_listener wl_keyboard_listener = {
@@ -728,10 +789,9 @@ static void registry_handle_global(void *data, struct wl_registry *registry,
    } else if (strcmp(interface, wl_seat_interface.name) == 0) {  //
       state->wl_seat = wl_registry_bind(registry, name, &wl_seat_interface, 9);
       wl_seat_add_listener(state->wl_seat, &wl_seat_listener, state);
-   }
-   else if(strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
+   } else if (strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
       state->layer_shell = wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface, 1);
-   printf("Got a registry event for %s id %d\n", interface, name);
+      // printf("Got a registry event for %s id %d\n", interface, name);
    }
 }
 static void registry_handle_global_remove(void *data,
@@ -749,7 +809,7 @@ static const struct wl_registry_listener registry_listener = {
 };
 static const struct wl_shm_listener shm_listener = {
     .format = shm_handle_global,
-      // .global_remove = shm_handle_global_remove,
+    // .global_remove = shm_handle_global_remove,
 };
 static void layer_surface_configure(void *data,
                                     struct zwlr_layer_surface_v1 *surface,
@@ -763,6 +823,18 @@ static void layer_surface_configure(void *data,
    wl_surface_damage(state->surface, 0, 0, width, height);
    wl_surface_commit(state->surface);
 }
+static void layer_surface_configure_temp(void *data,
+                                         struct zwlr_layer_surface_v1 *surface,
+                                         uint32_t serial, uint32_t width, uint32_t height) {
+   struct my_state *state = data;
+   zwlr_layer_surface_v1_ack_configure(surface, serial);
+   state->width = width;
+   state->height = height;
+   struct wl_buffer *buffer = empty_buffer(state);
+   wl_surface_attach(state->surface, buffer, 0, 0);
+   wl_surface_damage(state->surface, 0, 0, width, height);
+   wl_surface_commit(state->surface);
+}
 static void layer_surface_closed(void *data,
                                  struct zwlr_layer_surface_v1 *surface) {
    struct my_state *state = data;
@@ -772,11 +844,16 @@ static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
     .configure = layer_surface_configure,
     .closed = layer_surface_closed,
 };
+static const struct zwlr_layer_surface_v1_listener layer_surface_listener_temp = {
+    .configure = layer_surface_configure_temp,
+    .closed = layer_surface_closed,
+};
 void setup(struct my_state *state) {
    FTCHECK(FT_Init_FreeType(&state->library), "initializing freetype");
    FTCHECK(FT_New_Face(state->library,
                        "/usr/share/fonts/TTF/JetBrainsMono-Regular_kern.ttf", 0,
-                       &state->face), "loading font");
+                       &state->face),
+           "loading font");
    FTCHECK(FT_Set_Char_Size(state->face, 13 * 64, 0, 96, 96), "setting font size");
    precompute_gama();
 }
@@ -792,27 +869,37 @@ int main(int argc, char const *argv[]) {
    setup(&state);
    wl_registry_add_listener(registry, &registry_listener, &state);
    wl_display_roundtrip(display);
+   state.xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+   wl_shm_add_listener(state.shm, &shm_listener, &state);
+   // this is so fucking retarded i feel so ashamed doing this
+   state.surface = wl_compositor_create_surface(state.compositor);
+   state.layer_surface = zwlr_layer_shell_v1_get_layer_surface(state.layer_shell, state.surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "clipcell");
+   zwlr_layer_surface_v1_set_keyboard_interactivity(state.layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
+   zwlr_layer_surface_v1_add_listener(state.layer_surface, &layer_surface_listener_temp, &state);
+   zwlr_layer_surface_v1_set_anchor(state.layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP);
+   zwlr_layer_surface_v1_set_size(state.layer_surface, 300, 380);
+
+   wl_surface_commit(state.surface);
+   wl_display_dispatch(display);
+   wl_display_dispatch(display);
+
+   // destroy the surface
+   zwlr_layer_surface_v1_destroy(state.layer_surface);
+   wl_surface_destroy(state.surface);
 
    state.surface = wl_compositor_create_surface(state.compositor);
-   assert(state.layer_shell);
    state.layer_surface = zwlr_layer_shell_v1_get_layer_surface(state.layer_shell, state.surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "clipcell");
    zwlr_layer_surface_v1_add_listener(state.layer_surface, &layer_surface_listener, &state);
    zwlr_layer_surface_v1_set_anchor(state.layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP);
    zwlr_layer_surface_v1_set_size(state.layer_surface, 300, 380);
    zwlr_layer_surface_v1_set_keyboard_interactivity(state.layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
+   zwlr_layer_surface_v1_set_margin(state.layer_surface, pointer_init.y, -pointer_init.x, 0, 0);
    wl_surface_commit(state.surface);
-   state.xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-   wl_shm_add_listener(state.shm, &shm_listener, &state);
-
    while (wl_display_dispatch(display) != -1) {
-      // This space intentionally left blank
-      // printf("version %s", sft_version());
-      if(state.closed) {
+      if (state.closed) {
          break;
       }
-
    }
-
    wl_display_disconnect(display);
    return 0;
 }

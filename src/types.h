@@ -14,6 +14,7 @@
 #include <sys/mman.h>
 #include <errno.h>
 #include <time.h>
+#include <signal.h>
 #include <unistd.h>
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
@@ -23,6 +24,15 @@
 #include "config.h"
 #include FT_FREETYPE_H
 
+struct repeatInfo {
+   uint32_t rate;
+   uint32_t delay;
+};
+
+typedef struct pointerC {
+   int32_t x;
+   int32_t y;
+}PointerC;
 
 typedef struct Color {
    float r;
