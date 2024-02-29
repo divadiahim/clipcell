@@ -1,20 +1,21 @@
 #include <stdint.h>
 
 #include "freetype/fttypes.h"
-#define _POSIX_C_SOURCE 1
+#include <freetype/ftglyph.h>
+#define _POSIX_C_SOURCE 199309L
+// #define _POSIX_C_SOURCE=199309L
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <ft2build.h>
 #include <math.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <errno.h>
 #include <time.h>
-#include <signal.h>
 #include <unistd.h>
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
@@ -24,15 +25,31 @@
 #include "config.h"
 #include FT_FREETYPE_H
 
+#define TOTAL_COLORS 4
+#define MAX_GLYPHS 5000
+
+typedef struct  TGlyph_
+{
+  FT_UInt    index;  /* glyph index                  */
+  FT_Vector  pos;    /* glyph origin on the baseline */
+  FT_Glyph   image;                
+} TGlyph, *PGlyph;
+
 struct repeatInfo {
    uint32_t rate;
    uint32_t delay;
+   uint32_t repeat_key;
 };
 
 typedef struct pointerC {
    int32_t x;
    int32_t y;
-}PointerC;
+} PointerC;
+
+typedef struct poz {
+   int32_t x;
+   int32_t y;
+} Poz;
 
 typedef struct Color {
    float r;
@@ -75,11 +92,11 @@ typedef enum Colors {
 
 static const uint64_t colors[4] = {
     [BACKG] = 0xff0e0e10,
-   //  [BACKG] = 0xFFFF0000,
     [FOREG] = 0xffc6c5cf,
     [BORDER] = 0xFFc2c5dc,
     [BOX] = 0xFF1f1f23,
 };
+FT_Library library;
 static uint64_t colorsGamma[4] = {0};
 static const uint8_t log_level = 0;  
 #define LOG(imp,...) {if (log_level <= imp) {fprintf(stderr, __VA_ARGS__);}}

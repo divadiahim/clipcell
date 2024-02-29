@@ -37,7 +37,7 @@ Color blend(Color fg, Color bg, float alpha) {
    result.a = fg.a;
    return result;
 }
-Color blendLCD(Color fg, Color bg, FT_GlyphSlot slot, size_t z) {
+Color blendLCD(Color fg, Color bg, FT_BitmapGlyph slot, size_t z) {
    Color result;
    result.r = ((uint32_t)slot->bitmap.buffer[z] / 255.0) * fg.r +
               (1 - ((uint32_t)slot->bitmap.buffer[z]) / 255.0) * bg.r;
@@ -117,10 +117,8 @@ struct my_state {
    struct xkb_keymap *xkb_keymap;
    struct repeatInfo rinfo;
    __timer_t timer;
-   int width, height;
-   uint32_t repeat_key;
+   uint32_t width, height;
    bool closed;
-   FT_Library library;
    FT_Face face;
    int offset;
    Color currColor;
@@ -262,53 +260,139 @@ void plotQuadRationalBezierSegAA(int x0, int y0, int x1, int y1,
    }
    // plotLineAA(x0, y0, x2, y2, state, data, 1); /* plot remaining needle to end */
 }
-void draw_text_buffer(struct my_state *state, void *data, char *text) {
-   int num_chars = strlen(text);
-   int width = state->width;
-   int pen_x = 0;
-   int pen_y = 0;
+void compute_string_bbox(FT_BBox *abbox, FT_UInt num_glyphs, TGlyph *glyphs) {
+   FT_BBox bbox;
 
-   bool use_kerning = FT_HAS_KERNING(state->face);
-   FT_GlyphSlot slot = state->face->glyph;
-   FT_Error error = 0;
+   bbox.xMin = bbox.yMin = 320000;
+   bbox.xMax = bbox.yMax = -320000;
+
+   for (int n = 0; n < num_glyphs; n++) {
+      FT_BBox glyph_bbox;
+
+      FT_Glyph_Get_CBox(glyphs[n].image, ft_glyph_bbox_pixels,
+                        &glyph_bbox);
+
+      glyph_bbox.xMin += glyphs[n].pos.x;
+      glyph_bbox.xMax += glyphs[n].pos.x;
+      glyph_bbox.yMin += glyphs[n].pos.y;
+      glyph_bbox.yMax += glyphs[n].pos.y;
+
+      if (glyph_bbox.xMin < bbox.xMin)
+         bbox.xMin = glyph_bbox.xMin;
+
+      if (glyph_bbox.yMin < bbox.yMin)
+         bbox.yMin = glyph_bbox.yMin;
+
+      if (glyph_bbox.xMax > bbox.xMax)
+         bbox.xMax = glyph_bbox.xMax;
+
+      if (glyph_bbox.yMax > bbox.yMax)
+         bbox.yMax = glyph_bbox.yMax;
+   }
+
+   if (bbox.xMin > bbox.xMax) {
+      bbox.xMin = 0;
+      bbox.yMin = 0;
+      bbox.xMax = 0;
+      bbox.yMax = 0;
+   }
+
+   *abbox = bbox;
+}
+void draw_text(int width, FT_Face face, Poz poz, Poz tpoz, char *text, Colors FG, Colors BG, void *data) {
+   int num_chars = strlen(text);
+   //
+   FT_GlyphSlot slot = face->glyph; 
    FT_UInt glyph_index;
    FT_UInt previous = 0;
+   int pen_x = 0, pen_y = 0, n;
+
+   TGlyph glyphs[MAX_GLYPHS]; 
+   PGlyph glyph;              
+   FT_UInt num_glyphs = 0;
+
+   FT_Glyph image;
+   FT_Vector pen;
+   FT_Vector start;
+   FT_BBox bbox;
+   FT_BBox string_bbox;
+   int pen_base = 0;
+
+   glyph = glyphs;
    for (int i = 0; i < num_chars; i++) {
-      glyph_index = FT_Get_Char_Index(state->face, text[i]);
-
-      /* retrieve kerning distance and move pen position */
-      if (use_kerning && previous && glyph_index) {
-         printf("kerning\n");
-         FT_Vector delta;
-         FT_Get_Kerning(state->face, previous, glyph_index, FT_KERNING_DEFAULT, &delta);
-         pen_x += delta.x >> 6;
+      glyph_index = FT_Get_Char_Index(face, text[i]);
+      
+      FTCHECK(FT_Load_Glyph(face, FT_Get_Char_Index(face, text[i]), 0), "loading glyph");
+      FTCHECK(FT_Get_Glyph(face->glyph, &glyph->image), "getting glyph");
+      FT_Glyph_Transform(glyph->image, 0, &glyph->pos);
+      glyph->pos.x = pen_x;
+      if (pen_x >= tpoz.x) {
+         pen_y += face->size->metrics.height >> 6;
+         pen_x = 0;
       }
-      FTCHECK(FT_Load_Glyph(state->face, FT_Get_Char_Index(state->face, text[i]), 0), "loading glyph");
-      FTCHECK(FT_Render_Glyph(state->face->glyph, FT_RENDER_MODE_LCD), "rendering glyph");
+      glyph->pos.y = pen_y; 
+      pen_x += slot->advance.x >> 6;
+      previous = glyph->index;
+      glyph++;
 
-      int lcd_ww = slot->bitmap.width / 3;
+   }
+   num_glyphs = glyph - glyphs;
+   // print the number of glyphs
+   fprintf(stderr, "num_glyphs %d\n", num_glyphs);
+   compute_string_bbox(&string_bbox, num_glyphs, glyphs);
+   fprintf(stderr, "lalalallal %d, %d %d %d", string_bbox.xMax, string_bbox.yMax, string_bbox.xMin, string_bbox.yMin);
+   fflush(stderr);
+   uint32_t string_width = (string_bbox.xMax - string_bbox.xMin) / 64;
+   uint32_t string_height = (string_bbox.yMax - string_bbox.yMin) / 64;
+
+
+
+   /* set up start position in 26.6 Cartesian space */
+   start.x = ((poz.x - string_width) / 2) * 64;
+   start.y = ((poz.y - string_height) / 2) * 64 - face->size->metrics.ascender;
+   pen = start;
+   printf("topz %d\n", tpoz.x);
+
+   int o = 0;
+   for (int n = 0; n < num_glyphs; n++) {
+      // printf("\n");
+      /* create a copy of the original glyph */
+      FTCHECK(FT_Glyph_Copy(glyphs[n].image, &image), "copy failed");
+      FT_Glyph_Get_CBox(image, ft_glyph_bbox_pixels, &bbox);
+      fprintf(stderr, "bbox.xMin %d\n", glyphs[n].pos.x);
+      // check if characher is part of a word and if the whole word fits in the line
+      uint32_t pozz = 0;
+      if (glyphs[n].pos.x + pozz >= tpoz.x) {
+         tpoz.x = glyphs[n].pos.x + pozz;
+         pen.x = start.x;
+         o += face->size->metrics.height >> 6;
+      }
+      FT_Glyph_Transform(image, 0, &pen);
+      FTCHECK(FT_Glyph_To_Bitmap(&image, FT_RENDER_MODE_LCD, 0, 1), "rendering failed");
+
+      FT_BitmapGlyph bit = (FT_BitmapGlyph)image;
+
+      int lcd_ww = bit->bitmap.width / 3;
       int k = 0;
-      int z = 0;
-      int rr = slot->bitmap.rows;
-      Color fg = getColorFromHex(colorsGamma[FOREG]);
-      Color bg = getColorFromHex(colorsGamma[BACKG]);
+
+      int z = -(bit->bitmap.pitch - bit->bitmap.width);
+      int rr = bit->bitmap.rows;
+      Color fg = getColorFromHex(colorsGamma[FG]);
+      Color bg = getColorFromHex(colorsGamma[BG]);
       for (int i = 0; i < rr * lcd_ww; i++, z += 3) {
          int p = i % lcd_ww;
-         Color result = blendLCD(fg, bg, slot, z);
+         Color result = blendLCD(fg, bg, bit, z);
          result = apply_inverse_gama(result);
          if (i % lcd_ww == 0) {
             k++;
-            z += slot->bitmap.pitch - slot->bitmap.width;
+            z += bit->bitmap.pitch - bit->bitmap.width;
          }
-         int32_t xoff = slot->metrics.horiBearingX >> 6;
-         int32_t yoff = -(slot->metrics.horiBearingY >> 6);
-         int yoff_base = yoff + (state->face->size->metrics.ascender >> 6) +
-                         (state->face->size->metrics.descender >> 6) + 2;
-         ((uint32_t *)data)[p + (k + yoff_base) * width + pen_x +
-                            slot->bitmap_left + xoff] = getColorHex(result);
+         ((uint32_t *)data)[p + (o + k + poz.y - bit->top) * width +
+                            bit->left] = getColorHex(result);
       }
-      /* increment pen position */
-      pen_x += slot->metrics.horiAdvance >> 6;
+      pen.x += image->advance.x >> 10;
+      pen.y += image->advance.y >> 10;
+      FT_Done_Glyph(image);
    }
 }
 void draw_rect(int x, int y, int width, int height, uint16_t radius, uint16_t thickness, bool filled, Colors backg, Colors border, void *data, struct my_state *state) {
@@ -457,9 +541,17 @@ static struct wl_buffer *draw_frame(struct my_state *state) {
          ((uint32_t *)data)[y * width + x] = colors[BACKG];
       }
    }
-   draw_text_buffer(state, data, "Vreau sa ma sinucid");
-   draw_rect(BOX_PADDING, 50, state->width - 2 * BOX_PADDING, 80, 10, 5, 1, BOX, BORDER, data, state);
-   draw_rect(BOX_PADDING, BOX_SPACING + 80 + 50, state->width - 2 * BOX_PADDING, 80, 10, 5, 1, BOX, BORDER, data, state);
+   const char *init = "Choose from clipboard";
+   char *tbuf = "Acesta este un text copiat care testeaza daca textul se poate desena corect pe ecranul de mai jos mai multe texte si ma doare undeva";
+   // draw the string in the top center
+   draw_text(width, state->face, (Poz){20, 40}, (Poz){width, 80}, init, FOREG, BACKG, data); 
+   // draw_text_buffer(width, state->face, (Poz){50, 80}, (Poz){100, 160}, tbuf, data);
+   draw_rect(BOX_PADDING, 50, state->width - 2 * BOX_PADDING, 80, 10, BORDER_WIDTH, 1, BOX, BORDER, data, state);
+   // draw the string in the center of the box above
+   // draw_text_buffer(width, state->face, (Poz){BOX_PADDING, BOX_SPACING + 80}, (Poz){state->width - BOX_PADDING, 80}, tbuf, data);
+   draw_text(width, state->face, (Poz){(2 * BOX_PADDING + BORDER_WIDTH) * 2, BOX_SPACING + BORDER_RADIUS + 80}, (Poz){state->width - (2 * BOX_PADDING + BORDER_WIDTH) * 2, 80 + BOX_SPACING + BORDER_RADIUS}, tbuf, FOREG, BOX, data);
+   draw_rect(BOX_PADDING, BOX_SPACING + 80 + 50, state->width - 2 * BOX_PADDING, 80, 10, BORDER_WIDTH, 1, BOX, BORDER, data, state);
+   draw_rect(BOX_PADDING, BOX_SPACING + 80 + 50 + 80 + BOX_PADDING, state->width - 2 * BOX_PADDING, 80, 10, BORDER_WIDTH, 1, BOX, BORDER, data, state);
    munmap(data, size);
    wl_buffer_add_listener(buffer, &wl_buffer_listener, NULL);
    return buffer;
@@ -661,13 +753,12 @@ static void wl_keyboard_enter(void *data, struct wl_keyboard *wl_keyboard,
    }
 }
 
-void handle_timer(union sigval sv)
-{
-  struct my_state *state = sv.sival_ptr;
-    if (state->repeat_key != -1) {
+void handle_timer(union sigval sv) {
+   struct my_state *state = sv.sival_ptr;
+   if (state->rinfo.repeat_key != -1) {
       printf("repeat key\n");
-        // Handle the key press event for state->repeat_key
-    }
+      // Handle the key press event for state->repeat_key
+   }
 }
 static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
                             uint32_t serial, uint32_t time, uint32_t key,
@@ -685,12 +776,12 @@ static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
       client_state->closed = true;
       return;
    }
-   if (state == WL_KEYBOARD_KEY_STATE_PRESSED) { 
+   if (state == WL_KEYBOARD_KEY_STATE_PRESSED) {
       // Key was pressed
-      client_state->repeat_key = key;
+      client_state->rinfo.repeat_key = key;
 
       // Create a timer
-      // i just found out about this it's so op 
+      // i just found out about this it's so op
       struct sigevent sev = {.sigev_notify = SIGEV_THREAD, .sigev_notify_function = handle_timer, .sigev_value.sival_ptr = client_state};
       timer_create(CLOCK_REALTIME, &sev, &client_state->timer);
 
@@ -699,7 +790,7 @@ static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
       timer_settime(client_state->timer, 0, &its, NULL);
    } else {
       // Key was released
-      client_state->repeat_key = -1;
+      client_state->rinfo.repeat_key = -1;
 
       // Stop and destroy the timer
       timer_delete(client_state->timer);
@@ -849,12 +940,14 @@ static const struct zwlr_layer_surface_v1_listener layer_surface_listener_temp =
     .closed = layer_surface_closed,
 };
 void setup(struct my_state *state) {
-   FTCHECK(FT_Init_FreeType(&state->library), "initializing freetype");
-   FTCHECK(FT_New_Face(state->library,
+   FTCHECK(FT_Init_FreeType(&library), "initializing freetype");
+   FTCHECK(FT_New_Face(library,
                        "/usr/share/fonts/TTF/JetBrainsMono-Regular_kern.ttf", 0,
                        &state->face),
            "loading font");
-   FTCHECK(FT_Set_Char_Size(state->face, 13 * 64, 0, 96, 96), "setting font size");
+   uint32_t diagonal = sqrt(SCREEN_HEIGHT * SCREEN_HEIGHT + SCREEN_WIDTH * SCREEN_WIDTH);
+   float dpi = diagonal / SCREEN_DIAG;
+   FTCHECK(FT_Set_Char_Size(state->face, TEXT_SIZE * 64, 0, dpi, dpi), "setting font size");
    precompute_gama();
 }
 int main(int argc, char const *argv[]) {
