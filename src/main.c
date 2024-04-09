@@ -120,8 +120,8 @@ struct my_state {
    uint32_t width, height;
    bool closed;
    FT_Face face;
-   int offset;
    Color currColor;
+   rectC rectsC[TOTAL_RECTS];
 };
 static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer) {
    /* Sent by the compositor when it's no longer using this buffer */
@@ -227,18 +227,20 @@ void plotQuadRationalBezierSegAA(int x0, int y0, int x1, int y1,
          ed = fmax(dx - xy, xy - dy);
          ed += 2 * ed * cur * cur / (4. * ed * ed + cur * cur); /* approximate error distance */
          x1 = 255 * fabs(err - dx - dy + xy) / ed;              /* get blend value by pixel error */
-         if (x1 < 256)
+         if (x1 < 256) {
             if (aa)
                setPixelAA(x0, y0, x1, state, data);
             else
-               draw_pixel(x0, y0, 0, state, data); /* plot curve */
+               draw_pixel(x0, y0, 0, state, data);
+         }                                         /* plot curve */
          if (f = 2 * err + dy < 0) {               /* y step */
             if (y0 == y2) return;                  /* last pixel -> curve finished */
-            if (dx - err < ed)
+            if (dx - err < ed) {
                if (aa)
                   setPixelAA(x0 + sx, y0, 255 * fabs(dx - err) / ed, state, data);
                else
                   draw_pixel(x0 + sx, y0, 0, state, data);
+            }
          }
          if (2 * err + dx > 0) {  /* x step */
             if (x0 == x2) return; /* last pixel -> curve finished */
@@ -299,82 +301,62 @@ void compute_string_bbox(FT_BBox *abbox, FT_UInt num_glyphs, TGlyph *glyphs) {
 
    *abbox = bbox;
 }
-void draw_text(int width, FT_Face face, Poz poz, Poz tpoz, char *text, Colors FG, Colors BG, void *data) {
-   int num_chars = strlen(text);
-   //
-   FT_GlyphSlot slot = face->glyph; 
-   FT_UInt glyph_index;
-   FT_UInt previous = 0;
-   int pen_x = 0, pen_y = 0, n;
-
-   TGlyph glyphs[MAX_GLYPHS]; 
-   PGlyph glyph;              
-   FT_UInt num_glyphs = 0;
-
+void render_text(Text *text, FT_Face face, char *str) {
+   int pen_x = 0, pen_y = 0;
+   PGlyph glyph;
+   glyph = text->glyphs;
+   for (int i = 0; i < strlen(str); i++) {
+      if (pen_x >= text->rect.size.x && str[i] == ' ') {
+         continue;     
+      }
+      FTCHECK(FT_Load_Glyph(face, FT_Get_Char_Index(face, str[i]), 0), "Failed to load glyph");
+      FTCHECK(FT_Get_Glyph(face->glyph, &glyph->image), "Failed to get glyph");
+      FT_Glyph_Transform(glyph->image, 0, &glyph->pos);
+      glyph->pos.x = pen_x;
+      if (pen_x >= text->rect.size.x) {
+         pen_y += face->size->metrics.height >> 6;
+         pen_x = 0;
+      }
+      if (pen_y >= text->rect.size.y) {
+         break;
+      }
+      glyph->pos.y = pen_y;
+      pen_x += face->glyph->advance.x >> 6;
+      glyph++;
+   }
+   text->num_glyphs = glyph - text->glyphs;
+   compute_string_bbox(&(text->string_bbox), text->num_glyphs, text->glyphs);
+}
+void draw_text(Text text, FT_Face face, Colors FG, Colors BG, void *data) {
    FT_Glyph image;
    FT_Vector pen;
    FT_Vector start;
    FT_BBox bbox;
-   FT_BBox string_bbox;
-   int pen_base = 0;
-
-   glyph = glyphs;
-   for (int i = 0; i < num_chars; i++) {
-      glyph_index = FT_Get_Char_Index(face, text[i]);
-      
-      FTCHECK(FT_Load_Glyph(face, FT_Get_Char_Index(face, text[i]), 0), "loading glyph");
-      FTCHECK(FT_Get_Glyph(face->glyph, &glyph->image), "getting glyph");
-      FT_Glyph_Transform(glyph->image, 0, &glyph->pos);
-      glyph->pos.x = pen_x;
-      if (pen_x >= tpoz.x) {
-         pen_y += face->size->metrics.height >> 6;
-         pen_x = 0;
-      }
-      glyph->pos.y = pen_y; 
-      pen_x += slot->advance.x >> 6;
-      previous = glyph->index;
-      glyph++;
-
-   }
-   num_glyphs = glyph - glyphs;
-   // print the number of glyphs
-   fprintf(stderr, "num_glyphs %d\n", num_glyphs);
-   compute_string_bbox(&string_bbox, num_glyphs, glyphs);
-   fprintf(stderr, "lalalallal %d, %d %d %d", string_bbox.xMax, string_bbox.yMax, string_bbox.xMin, string_bbox.yMin);
-   fflush(stderr);
-   uint32_t string_width = (string_bbox.xMax - string_bbox.xMin) / 64;
-   uint32_t string_height = (string_bbox.yMax - string_bbox.yMin) / 64;
-
-
-
-   /* set up start position in 26.6 Cartesian space */
-   start.x = ((poz.x - string_width) / 2) * 64;
-   start.y = ((poz.y - string_height) / 2) * 64 - face->size->metrics.ascender;
-   pen = start;
-   printf("topz %d\n", tpoz.x);
-
    int o = 0;
-   for (int n = 0; n < num_glyphs; n++) {
-      // printf("\n");
-      /* create a copy of the original glyph */
-      FTCHECK(FT_Glyph_Copy(glyphs[n].image, &image), "copy failed");
+
+   // uint32_t string_width = (text.string_bbox.xMax - text.string_bbox.xMin) / 64;
+   // uint32_t string_height = (text.string_bbox.yMax - text.string_bbox.yMin) / 64;
+
+   start.x = ((text.rect.pos.x)) * 64;
+   start.y = ((text.rect.pos.y) - face->size->metrics.height) / 2;
+   pen = start;
+   for (int n = 0; n < text.num_glyphs; n++) {
+      FTCHECK(FT_Glyph_Copy(text.glyphs[n].image, &image), "copy failed");
       FT_Glyph_Get_CBox(image, ft_glyph_bbox_pixels, &bbox);
-      fprintf(stderr, "bbox.xMin %d\n", glyphs[n].pos.x);
-      // check if characher is part of a word and if the whole word fits in the line
       uint32_t pozz = 0;
-      if (glyphs[n].pos.x + pozz >= tpoz.x) {
-         tpoz.x = glyphs[n].pos.x + pozz;
+      if (text.glyphs[n].pos.x + pozz >= text.rect.size.x) {
+         text.rect.size.x = text.glyphs[n].pos.x + pozz;
          pen.x = start.x;
          o += face->size->metrics.height >> 6;
       }
       FT_Glyph_Transform(image, 0, &pen);
       FTCHECK(FT_Glyph_To_Bitmap(&image, FT_RENDER_MODE_LCD, 0, 1), "rendering failed");
-
       FT_BitmapGlyph bit = (FT_BitmapGlyph)image;
-
+      if (o  > text.rect.size.y) {
+         return;
+      }
       int lcd_ww = bit->bitmap.width / 3;
       int k = 0;
-
       int z = -(bit->bitmap.pitch - bit->bitmap.width);
       int rr = bit->bitmap.rows;
       Color fg = getColorFromHex(colorsGamma[FG]);
@@ -387,7 +369,7 @@ void draw_text(int width, FT_Face face, Poz poz, Poz tpoz, char *text, Colors FG
             k++;
             z += bit->bitmap.pitch - bit->bitmap.width;
          }
-         ((uint32_t *)data)[p + (o + k + poz.y - bit->top) * width +
+         ((uint32_t *)data)[p + (o + k + text.rect.pos.y - bit->top) * WINDOW_WIDTH +
                             bit->left] = getColorHex(result);
       }
       pen.x += image->advance.x >> 10;
@@ -395,50 +377,7 @@ void draw_text(int width, FT_Face face, Poz poz, Poz tpoz, char *text, Colors FG
       FT_Done_Glyph(image);
    }
 }
-void draw_rect(int x, int y, int width, int height, uint16_t radius, uint16_t thickness, bool filled, Colors backg, Colors border, void *data, struct my_state *state) {
-   // draw a rectangle with rounded corners using the plot_line function and the bezier function
-   if (filled && radius == 0) {
-      state->currColor = getColorFromHex(colorsGamma[backg]);
-      fillRect(x, y, width, height, state, data);
-      if (backg == border)
-         return;
-   }
-   int x0 = x;
-   int y0 = y;
-   int x1 = x + width;
-   int y1 = y + height;
-   int offset = state->offset;
-   int f_thickness = ceil(thickness / 2.0) - 1;
-   if (filled && radius > 0) {
-      state->currColor = getColorFromHex(colorsGamma[backg]);
-      drawRoundedRectFilled(x0 + 1, y0 - 1, x1 - 1, y1 - 1, radius - radius / 6, state, data);
-   }
-   state->currColor = getColorFromHex(colorsGamma[border]);
-   plotLineAA(x0 + radius, y0, x1 - radius, y0, state, data, thickness);
-   plotLineAA(x0 + radius, y1, x1 - radius, y1, state, data, thickness);
-   plotLineAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y1 - radius, state, data, thickness);
-   plotLineAA(x1, y0 + radius - f_thickness, x1, y1 - radius, state, data, thickness);
-   if (radius > 0) {
-      plotQuadRationalBezierSegAA(x0, y0 + radius - f_thickness, x0, y0 - f_thickness, x0 + radius, y0 - f_thickness, 1, 1, state, data);
-      plotQuadRationalBezierSegAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y0, x0 + radius, y0, 1, 1, state, data);
 
-      plotQuadRationalBezierSegAA(x1 - f_thickness, y0 + radius - f_thickness, x1 - f_thickness, y0, x1 - radius, y0, 1, 1, state, data);
-      plotQuadRationalBezierSegAA(x1, y0 + radius - f_thickness, x1, y0 - f_thickness, x1 - radius, y0 - f_thickness, 1, 1, state, data);
-
-      plotQuadRationalBezierSegAA(x0 + f_thickness, y1 - radius, x0 + f_thickness, y1 - f_thickness, x0 + radius, y1 - f_thickness, 1, 1, state, data);
-      plotQuadRationalBezierSegAA(x0, y1 - radius, x0, y1, x0 + radius, y1, 1, 1, state, data);
-
-      plotQuadRationalBezierSegAA(x1 - f_thickness, y1 - radius, x1 - f_thickness, y1 - f_thickness, x1 - radius, y1 - f_thickness, 1, 1, state, data);
-      plotQuadRationalBezierSegAA(x1, y1 - radius, x1, y1, x1 - radius, y1, 1, 1, state, data);
-
-      for (int i = 1; i < f_thickness; i += 1) {
-         plotQuadRationalBezierSegAA(x0 + i, y0 + radius - f_thickness, x0 + i, y0 - f_thickness + i, x0 + radius, y0 - f_thickness + i, 1, 0, state, data);
-         plotQuadRationalBezierSegAA(x1 - i, y0 + radius - f_thickness, x1 - i, y0 - f_thickness + i, x1 - radius, y0 - f_thickness + i, 1, 0, state, data);
-         plotQuadRationalBezierSegAA(x0 + i, y1 - radius, x0 + i, y1 - i, x0 + radius, y1 - i, 1, 0, state, data);
-         plotQuadRationalBezierSegAA(x1 - i, y1 - radius, x1 - i, y1 - i, x1 - radius, y1 - i, 1, 0, state, data);
-      }
-   }
-}
 void fillRect(int x, int y, int width, int height, struct my_state *state,
               void *data) {
    for (int i = y; i <= y + height; i++) {
@@ -483,6 +422,53 @@ void drawRoundedRectFilled(int x1, int y1, int x2, int y2, int radius, struct my
       plotLineAA(cx1 - y, cy2 + x + 1, cx2 + y, cy2 + x + 1, state, data, 1);
    }
 }
+void draw_rect(Rect rect, uint16_t radius, uint16_t thickness, bool filled, Colors backg, Colors border, void *data, struct my_state *state) {
+   int x = rect.pos.x;
+   int y = rect.pos.y;
+   int width = rect.size.x;
+   int height = rect.size.y;
+
+   if (filled && radius == 0) {
+      state->currColor = getColorFromHex(colorsGamma[backg]);
+      fillRect(x, y, width, height, state, data);
+      if (backg == border)
+         return;
+   }
+   int x0 = x;
+   int y0 = y;
+   int x1 = x + width;
+   int y1 = y + height;
+   int f_thickness = ceil(thickness / 2.0) - 1;
+   if (filled && radius > 0) {
+      state->currColor = getColorFromHex(colorsGamma[backg]);
+      drawRoundedRectFilled(x0 + 1, y0 - 1, x1 - 1, y1 - 1, radius - radius / 6, state, data);
+   }
+   state->currColor = getColorFromHex(colorsGamma[border]);
+   plotLineAA(x0 + radius, y0, x1 - radius, y0, state, data, thickness);
+   plotLineAA(x0 + radius, y1, x1 - radius, y1, state, data, thickness);
+   plotLineAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y1 - radius, state, data, thickness);
+   plotLineAA(x1, y0 + radius - f_thickness, x1, y1 - radius, state, data, thickness);
+   if (radius > 0) {
+      plotQuadRationalBezierSegAA(x0, y0 + radius - f_thickness, x0, y0 - f_thickness, x0 + radius, y0 - f_thickness, 1, 1, state, data);
+      plotQuadRationalBezierSegAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y0, x0 + radius, y0, 1, 1, state, data);
+
+      plotQuadRationalBezierSegAA(x1 - f_thickness, y0 + radius - f_thickness, x1 - f_thickness, y0, x1 - radius, y0, 1, 1, state, data);
+      plotQuadRationalBezierSegAA(x1, y0 + radius - f_thickness, x1, y0 - f_thickness, x1 - radius, y0 - f_thickness, 1, 1, state, data);
+
+      plotQuadRationalBezierSegAA(x0 + f_thickness, y1 - radius, x0 + f_thickness, y1 - f_thickness, x0 + radius, y1 - f_thickness, 1, 1, state, data);
+      plotQuadRationalBezierSegAA(x0, y1 - radius, x0, y1, x0 + radius, y1, 1, 1, state, data);
+
+      plotQuadRationalBezierSegAA(x1 - f_thickness, y1 - radius, x1 - f_thickness, y1 - f_thickness, x1 - radius, y1 - f_thickness, 1, 1, state, data);
+      plotQuadRationalBezierSegAA(x1, y1 - radius, x1, y1, x1 - radius, y1, 1, 1, state, data);
+
+      for (int i = 1; i < f_thickness; i += 1) {
+         plotQuadRationalBezierSegAA(x0 + i, y0 + radius - f_thickness, x0 + i, y0 - f_thickness + i, x0 + radius, y0 - f_thickness + i, 1, 0, state, data);
+         plotQuadRationalBezierSegAA(x1 - i, y0 + radius - f_thickness, x1 - i, y0 - f_thickness + i, x1 - radius, y0 - f_thickness + i, 1, 0, state, data);
+         plotQuadRationalBezierSegAA(x0 + i, y1 - radius, x0 + i, y1 - i, x0 + radius, y1 - i, 1, 0, state, data);
+         plotQuadRationalBezierSegAA(x1 - i, y1 - radius, x1 - i, y1 - i, x1 - radius, y1 - i, 1, 0, state, data);
+      }
+   }
+}
 static struct wl_buffer *empty_buffer(struct my_state *state) {
    struct wl_shm_pool *pool;
    int width = state->width;
@@ -509,7 +495,13 @@ static struct wl_buffer *empty_buffer(struct my_state *state) {
    wl_buffer_add_listener(buffer, &wl_buffer_listener, NULL);
    return buffer;
 }
-// unction that draws mutiple beziers together to give the impression of thickness
+void fill_bg_no_aa(uint32_t width, uint32_t height, void *data, struct my_state *state) {
+   for (int y = 0; y < state->height; ++y) {
+      for (int x = 0; x < state->width; ++x) {
+         ((uint32_t *)data)[y * state->width + x] = colors[BACKG];
+      }
+   }
+}
 static struct wl_buffer *draw_frame(struct my_state *state) {
    struct wl_shm_pool *pool;
    int width = state->width;
@@ -536,22 +528,20 @@ static struct wl_buffer *draw_frame(struct my_state *state) {
    close(fd);
 
    /* fill backgrond with color*/
-   for (int y = 0; y < height; ++y) {
-      for (int x = 0; x < width; ++x) {
-         ((uint32_t *)data)[y * width + x] = colors[BACKG];
-      }
-   }
-   const char *init = "Choose from clipboard";
-   char *tbuf = "Acesta este un text copiat care testeaza daca textul se poate desena corect pe ecranul de mai jos mai multe texte si ma doare undeva";
+   fill_bg_no_aa(width, height, data, state);
+   // const char *init = "Choose from clipboard";
+   char *tbuf = "Thank you for filling in this form about the opening symposium and your tutorial preferences. Click on the link 'see previous responses' to see a summary of the registrations. ";
    // draw the string in the top center
-   draw_text(width, state->face, (Poz){20, 40}, (Poz){width, 80}, init, FOREG, BACKG, data); 
-   // draw_text_buffer(width, state->face, (Poz){50, 80}, (Poz){100, 160}, tbuf, data);
-   draw_rect(BOX_PADDING, 50, state->width - 2 * BOX_PADDING, 80, 10, BORDER_WIDTH, 1, BOX, BORDER, data, state);
-   // draw the string in the center of the box above
-   // draw_text_buffer(width, state->face, (Poz){BOX_PADDING, BOX_SPACING + 80}, (Poz){state->width - BOX_PADDING, 80}, tbuf, data);
-   draw_text(width, state->face, (Poz){(2 * BOX_PADDING + BORDER_WIDTH) * 2, BOX_SPACING + BORDER_RADIUS + 80}, (Poz){state->width - (2 * BOX_PADDING + BORDER_WIDTH) * 2, 80 + BOX_SPACING + BORDER_RADIUS}, tbuf, FOREG, BOX, data);
-   draw_rect(BOX_PADDING, BOX_SPACING + 80 + 50, state->width - 2 * BOX_PADDING, 80, 10, BORDER_WIDTH, 1, BOX, BORDER, data, state);
-   draw_rect(BOX_PADDING, BOX_SPACING + 80 + 50 + 80 + BOX_PADDING, state->width - 2 * BOX_PADDING, 80, 10, BORDER_WIDTH, 1, BOX, BORDER, data, state);
+   for (int i = 0; i < TOTAL_RECTS; i++) {
+      draw_rect(rects[i], BORDER_RADIUS, BORDER_WIDTH, true, BOX, BORDER, data, state);
+   }
+   Text text;
+   // text.rect.pos = (Poz){20, 20};
+   // text.rect.size = (Poz){140, 40};
+   text.rect = textmap[0];
+   render_text(&text, state->face, tbuf);
+   draw_text(text, state->face, FOREG, BOX, data);
+
    munmap(data, size);
    wl_buffer_add_listener(buffer, &wl_buffer_listener, NULL);
    return buffer;
@@ -640,7 +630,7 @@ static void wl_pointer_axis_discrete(void *data, struct wl_pointer *wl_pointer,
 PointerC pointer_init = {0};
 static void wl_pointer_frame(void *data, struct wl_pointer *wl_pointer) {
    struct my_state *client_state = data;
-   static bool first_frame = true;
+   // static bool first_frame = true;
    struct pointer_event *event = &client_state->pointer_event;
    fprintf(stderr, "pointer frame @ %d: ", event->time);
 
@@ -764,14 +754,12 @@ static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
                             uint32_t serial, uint32_t time, uint32_t key,
                             uint32_t state) {
    struct my_state *client_state = data;
-   clock_t start = 0;
    char buf[128];
    uint32_t keycode = key + 8;
    xkb_keysym_t sym =
        xkb_state_key_get_one_sym(client_state->xkb_state, keycode);
    xkb_keysym_get_name(sym, buf, sizeof(buf));
-   const char *action =
-       state == WL_KEYBOARD_KEY_STATE_PRESSED ? "press" : "release";
+   const char *action = (state == WL_KEYBOARD_KEY_STATE_PRESSED ? "press" : "release");
    if (state == WL_KEYBOARD_KEY_STATE_PRESSED && sym == XKB_KEY_Escape) {
       client_state->closed = true;
       return;
@@ -949,6 +937,7 @@ void setup(struct my_state *state) {
    float dpi = diagonal / SCREEN_DIAG;
    FTCHECK(FT_Set_Char_Size(state->face, TEXT_SIZE * 64, 0, dpi, dpi), "setting font size");
    precompute_gama();
+   
 }
 int main(int argc, char const *argv[]) {
    struct my_state state = {0};
@@ -970,7 +959,7 @@ int main(int argc, char const *argv[]) {
    zwlr_layer_surface_v1_set_keyboard_interactivity(state.layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
    zwlr_layer_surface_v1_add_listener(state.layer_surface, &layer_surface_listener_temp, &state);
    zwlr_layer_surface_v1_set_anchor(state.layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP);
-   zwlr_layer_surface_v1_set_size(state.layer_surface, 300, 380);
+   zwlr_layer_surface_v1_set_size(state.layer_surface, window_size.x, window_size.y);
 
    wl_surface_commit(state.surface);
    wl_display_dispatch(display);
@@ -984,7 +973,7 @@ int main(int argc, char const *argv[]) {
    state.layer_surface = zwlr_layer_shell_v1_get_layer_surface(state.layer_shell, state.surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "clipcell");
    zwlr_layer_surface_v1_add_listener(state.layer_surface, &layer_surface_listener, &state);
    zwlr_layer_surface_v1_set_anchor(state.layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP);
-   zwlr_layer_surface_v1_set_size(state.layer_surface, 300, 380);
+   zwlr_layer_surface_v1_set_size(state.layer_surface, WINDOW_WIDTH, WINDOW_HEIGHT);
    zwlr_layer_surface_v1_set_keyboard_interactivity(state.layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
    zwlr_layer_surface_v1_set_margin(state.layer_surface, pointer_init.y, -pointer_init.x, 0, 0);
    wl_surface_commit(state.surface);
