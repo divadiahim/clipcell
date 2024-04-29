@@ -12,7 +12,7 @@ client: $(SRC_FILES)
 	$(CC) $(CCFLAGS) -I$(INCLUDE) -o $@ $^ $(LFLAGS)
 
 run: client
-	./$(BIN)/$(TARGET)
+	./client
 
 clean:
 	rm -rf $(BIN)
