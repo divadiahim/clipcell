@@ -54,5 +54,5 @@ vgcore.*
 .cache/
 bin/
 *.json
-.clangd
+.clangd*
 *.py
