@@ -1,6 +1,7 @@
 CC = gcc
 CCFLAGS = -Wall -O2 -Wno-traditional
 LFLAGS = -lm -lwayland-client -lrt $(shell pkg-config --libs freetype2) $(shell pkg-config --cflags freetype2) -lxkbcommon 
+SRV_LFLAGS = $(shell pkg-config --libs libmagic) 
 
 SRC_FILES_CLIP := $(wildcard src/clip/*.c)
 SRC_FILES_SRV := $(wildcard src/server/*.c)
@@ -20,7 +21,7 @@ server: $(BIN)/server
 
 $(BIN)/server: $(SRC_FILES_SRV)
 	mkdir -p $(BIN)
-	$(CC) $(CCFLAGS) -o $@ $^
+	$(CC) $(CCFLAGS) -o $@ $^ $(SRV_LFLAGS)
 
 clean:
 	rm -rf $(BIN)

@@ -1,18 +1,10 @@
 #include "map.h"
 
-#include <stdio.h>
-#include <string.h>
-Node *allocNode(List *list) {
-   return &list->nodes[list->npool];
-   list->npool++;
-}
-
 void newNode(void *list, void *buf, size_t bufsize) {
    Node *l = (Node *)list;
    l->next = 0;
-   l->size = bufsize + 2 * sizeof(uint32_t);
-   l->data = list + 2 * sizeof(uint32_t);
-   memcpy(l->data, buf, bufsize);
+   l->size = bufsize + sizeof(Node);
+   memcpy(list + sizeof(Node), buf, bufsize);
    return;
 }
 
@@ -20,14 +12,13 @@ void pushNode(void *list, void *buf, size_t bufsize, uint32_t *head) {
    void *poz = list + *head + ((Node *)(list + *head))->size;
    Node *newnode = (Node *)poz;
    newnode->next = *head;
-   newnode->size = bufsize + 2 * sizeof(uint32_t);
-   newnode->data = poz + 2 * sizeof(uint32_t);
-   memcpy(newnode->data, buf, bufsize);
-   *head += newnode->size;
+   newnode->size = bufsize + sizeof(Node);
+   memcpy(poz + sizeof(Node), buf, bufsize);
+   *head += ((Node *)(list + *head))->size;
    return;
 }
 
-void printList(void *list, uint32_t head) {
+void printList(void *list, uint32_t head, magic_t *magic) {
    void *poz = list + head;
    Node *current = (Node *)poz;
    uint8_t exitcount;
@@ -38,7 +29,8 @@ void printList(void *list, uint32_t head) {
       }
       printf("Size: %d\n", current->size);
       printf("Next: %d\n", current->next);
-      print_data(poz + 2 * sizeof(uint32_t), current->size - 2 * sizeof(uint32_t));
+      getMime(magic, poz + 2 * sizeof(uint32_t), current->size - 2 * sizeof(uint32_t));
+      // print_data(poz + 2 * sizeof(uint32_t), current->size - 2 * sizeof(uint32_t));
       printf("\n");
       poz = list + current->next;
       current = (Node *)poz;
@@ -51,4 +43,28 @@ void print_data(void *data, size_t size) {
       printf("%c", ((char *)data)[i]);
    }
    fflush(stdout);
+}
+
+void mimeInit(magic_t *magic) {
+   if (!(*magic = magic_open(MAGIC_MIME_TYPE))) {
+      perror("failed to open magic library");
+   }
+   if (magic_load(*magic, NULL)) {
+      perror("failed to load magic database");
+   }
+}
+
+void mimeClose(magic_t *magic) {
+   magic_close(*magic);
+   return;
+}
+
+void getMime(magic_t *magic, void *data, size_t size) {
+   const char *mime = magic_buffer(*magic, data, size);
+   if (mime == NULL) {
+      perror("failed to get mime type");
+      return;
+   }
+   printf("Mime type: %s\n", mime);
+   return;
 }
