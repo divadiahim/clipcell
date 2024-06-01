@@ -1,59 +1,7 @@
 #include <stdint.h>
 
-#include "types.h"
-// gama correction
+#include "util.h"
 
-Color apply_gama(Color color) {
-   // use this formula  255 * POWER(gammavalue / 255,2.2)
-   color.r = 255 * pow(color.r / 255, gama);
-   color.g = 255 * pow(color.g / 255, gama);
-   color.b = 255 * pow(color.b / 255, gama);
-   return color;
-}
-
-Color apply_inverse_gama(Color color) {
-   // use this formula  255*POWER(linearvalue/255,1/2.2)
-   color.r = 255 * pow(color.r / 255, 1.0f / gama);
-   color.g = 255 * pow(color.g / 255, 1.0f / gama);
-   color.b = 255 * pow(color.b / 255, 1.0f / gama);
-   return color;
-}
-Color getColorFromHex(uint32_t hex) {
-   Color color;
-   color.a = (hex >> 24) & 0xFF;
-   color.r = (hex >> 16) & 0xFF;
-   color.g = (hex >> 8) & 0xFF;
-   color.b = hex & 0xFF;
-   return color;
-}
-uint32_t getColorHex(Color result) {
-   return ((uint8_t)result.a << 24) | ((uint8_t)result.r << 16) | ((uint8_t)result.g << 8) | (uint8_t)result.b;
-}
-Color blend(Color fg, Color bg, float alpha) {
-   Color result;
-   result.r = alpha * fg.r + (1 - alpha) * bg.r;
-   result.g = alpha * fg.g + (1 - alpha) * bg.g;
-   result.b = alpha * fg.b + (1 - alpha) * bg.b;
-   result.a = fg.a;
-   return result;
-}
-Color blendLCD(Color fg, Color bg, FT_BitmapGlyph slot, size_t z) {
-   Color result;
-   result.r = ((uint32_t)slot->bitmap.buffer[z] / 255.0) * fg.r +
-              (1 - ((uint32_t)slot->bitmap.buffer[z]) / 255.0) * bg.r;
-   result.g = ((uint32_t)slot->bitmap.buffer[z + 1] / 255.0) * fg.g +
-              (1 - ((uint32_t)slot->bitmap.buffer[z + 1]) / 255.0) * bg.g;
-   result.b = ((uint32_t)slot->bitmap.buffer[z + 2] / 255.0) * fg.b +
-              (1 - ((uint32_t)slot->bitmap.buffer[z + 2]) / 255.0) * bg.b;
-   result.a = fg.a;
-   return result;
-}
-void precompute_gama() {
-   for (size_t i = 0; i < TOTAL_COLORS; i++) {
-      Color color = getColorFromHex(colors[i]);
-      colorsGamma[i] = getColorHex(apply_gama(color));
-   }
-}
 /*shared memory support*/
 static void randname(char *buf) {
    struct timespec ts;
@@ -149,7 +97,6 @@ void setPixelAA(int x, int y, int c, struct my_state *state, void *data) {
 void setPixelColor(int x, int y, int c, struct my_state *state, void *data) {
    draw_pixel(x, y, (c & 0x000000ff) / 255.0, state, data);
 }
-int max(int a, int b) { return a > b ? a : b; }
 void plotLineAA(int x0, int y0, int x1, int y1, struct my_state *state, void *data, int wd) {
    int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
    int dy = abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
@@ -232,9 +179,9 @@ void plotQuadRationalBezierSegAA(int x0, int y0, int x1, int y1,
                setPixelAA(x0, y0, x1, state, data);
             else
                draw_pixel(x0, y0, 0, state, data);
-         }                                         /* plot curve */
-         if (f = 2 * err + dy < 0) {               /* y step */
-            if (y0 == y2) return;                  /* last pixel -> curve finished */
+         } /* plot curve */
+         if ((f = 2 * err + dy < 0)) { /* y step */
+            if (y0 == y2) return;      /* last pixel -> curve finished */
             if (dx - err < ed) {
                if (aa)
                   setPixelAA(x0 + sx, y0, 255 * fabs(dx - err) / ed, state, data);
@@ -244,11 +191,12 @@ void plotQuadRationalBezierSegAA(int x0, int y0, int x1, int y1,
          }
          if (2 * err + dx > 0) {  /* x step */
             if (x0 == x2) return; /* last pixel -> curve finished */
-            if (err - dy < ed)
+            if (err - dy < ed) {
                if (aa)
                   setPixelAA(x0, y0 + sy, 255 * fabs(err - dy) / ed, state, data);
                else
                   draw_pixel(x0, y0 + sy, 0, state, data);
+            }
             x0 += sx;
             dx += xy;
             err += dy += yy;
@@ -257,7 +205,7 @@ void plotQuadRationalBezierSegAA(int x0, int y0, int x1, int y1,
             y0 += sy;
             dy += xy;
             err += dx += xx;
-         }               /* y step */
+         } /* y step */
       } while (dy < dx); /* gradient negates -> algorithm fails */
    }
    // plotLineAA(x0, y0, x2, y2, state, data, 1); /* plot remaining needle to end */
@@ -307,7 +255,7 @@ void render_text(Text *text, FT_Face face, char *str) {
    glyph = text->glyphs;
    for (int i = 0; i < strlen(str); i++) {
       if (pen_x >= text->rect.size.x && str[i] == ' ') {
-         continue;     
+         continue;
       }
       FTCHECK(FT_Load_Glyph(face, FT_Get_Char_Index(face, str[i]), 0), "Failed to load glyph");
       FTCHECK(FT_Get_Glyph(face->glyph, &glyph->image), "Failed to get glyph");
@@ -352,7 +300,7 @@ void draw_text(Text text, FT_Face face, Colors FG, Colors BG, void *data) {
       FT_Glyph_Transform(image, 0, &pen);
       FTCHECK(FT_Glyph_To_Bitmap(&image, FT_RENDER_MODE_LCD, 0, 1), "rendering failed");
       FT_BitmapGlyph bit = (FT_BitmapGlyph)image;
-      if (o  > text.rect.size.y) {
+      if (o > text.rect.size.y) {
          return;
       }
       int lcd_ww = bit->bitmap.width / 3;
@@ -508,8 +456,7 @@ static struct wl_buffer *draw_frame(struct my_state *state) {
    int height = state->height;
    int stride = width * 4;
    int size = stride * height;
-   static int thickness = 0;
-   thickness += 1;
+
    int fd = allocate_shm_file(size);
    if (fd < 0) {
       fprintf(stderr, "creating a buffer file for %d B failed: %m\n", size);
@@ -535,10 +482,7 @@ static struct wl_buffer *draw_frame(struct my_state *state) {
    for (int i = 0; i < TOTAL_RECTS; i++) {
       draw_rect(rects[i], BORDER_RADIUS, BORDER_WIDTH, true, BOX, BORDER, data, state);
    }
-   Text text;
-   // text.rect.pos = (Poz){20, 20};
-   // text.rect.size = (Poz){140, 40};
-   text.rect = textmap[0];
+   Text text = {.rect = textmap[0]};
    render_text(&text, state->face, tbuf);
    draw_text(text, state->face, FOREG, BOX, data);
 
@@ -933,11 +877,19 @@ void setup(struct my_state *state) {
                        "/usr/share/fonts/TTF/JetBrainsMono-Regular_kern.ttf", 0,
                        &state->face),
            "loading font");
-   uint32_t diagonal = sqrt(SCREEN_HEIGHT * SCREEN_HEIGHT + SCREEN_WIDTH * SCREEN_WIDTH);
-   float dpi = diagonal / SCREEN_DIAG;
-   FTCHECK(FT_Set_Char_Size(state->face, TEXT_SIZE * 64, 0, dpi, dpi), "setting font size");
+   FTCHECK(FT_Set_Char_Size(state->face, TEXT_SIZE * 64, 0, DPI, DPI), "setting font size");
    precompute_gama();
-   
+   compute_rects(rects, box_base_rect, box_tr_mat);
+   compute_rects(textmap, text_base_rect, text_tr_mat);
+}
+void zwlr_layer_surface_v1_init(struct my_state *state, const struct zwlr_layer_surface_v1_listener *layer_surface_listener_vlt)
+{
+   state->surface = wl_compositor_create_surface(state->compositor);
+   state->layer_surface = zwlr_layer_shell_v1_get_layer_surface(state->layer_shell, state->surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "clipcell");
+   zwlr_layer_surface_v1_add_listener(state->layer_surface, layer_surface_listener_vlt, state);
+   zwlr_layer_surface_v1_set_anchor(state->layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP);
+   zwlr_layer_surface_v1_set_size(state->layer_surface, WINDOW_WIDTH, WINDOW_HEIGHT);
+   zwlr_layer_surface_v1_set_keyboard_interactivity(state->layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
 }
 int main(int argc, char const *argv[]) {
    struct my_state state = {0};
@@ -954,27 +906,15 @@ int main(int argc, char const *argv[]) {
    state.xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
    wl_shm_add_listener(state.shm, &shm_listener, &state);
    // this is so fucking retarded i feel so ashamed doing this
-   state.surface = wl_compositor_create_surface(state.compositor);
-   state.layer_surface = zwlr_layer_shell_v1_get_layer_surface(state.layer_shell, state.surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "clipcell");
-   zwlr_layer_surface_v1_set_keyboard_interactivity(state.layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
-   zwlr_layer_surface_v1_add_listener(state.layer_surface, &layer_surface_listener_temp, &state);
-   zwlr_layer_surface_v1_set_anchor(state.layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP);
-   zwlr_layer_surface_v1_set_size(state.layer_surface, window_size.x, window_size.y);
-
+   zwlr_layer_surface_v1_init(&state, &layer_surface_listener_temp);
    wl_surface_commit(state.surface);
    wl_display_dispatch(display);
    wl_display_dispatch(display);
 
-   // destroy the surface
    zwlr_layer_surface_v1_destroy(state.layer_surface);
    wl_surface_destroy(state.surface);
 
-   state.surface = wl_compositor_create_surface(state.compositor);
-   state.layer_surface = zwlr_layer_shell_v1_get_layer_surface(state.layer_shell, state.surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "clipcell");
-   zwlr_layer_surface_v1_add_listener(state.layer_surface, &layer_surface_listener, &state);
-   zwlr_layer_surface_v1_set_anchor(state.layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP);
-   zwlr_layer_surface_v1_set_size(state.layer_surface, WINDOW_WIDTH, WINDOW_HEIGHT);
-   zwlr_layer_surface_v1_set_keyboard_interactivity(state.layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
+   zwlr_layer_surface_v1_init(&state, &layer_surface_listener);
    zwlr_layer_surface_v1_set_margin(state.layer_surface, pointer_init.y, -pointer_init.x, 0, 0);
    wl_surface_commit(state.surface);
    while (wl_display_dispatch(display) != -1) {

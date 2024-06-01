@@ -1,5 +1,6 @@
 // --colors in hex rrggbb
-
+#ifndef CONFIG_H
+#define CONFIG_H
 
 #define TEXT_SIZE 7
 #define SCREEN_WIDTH 1920
@@ -16,5 +17,12 @@
 #define BORDER_WIDTH 5
 #define BORDER_RADIUS 10
 
+#define GAMMA 1.8f
+#define TOTAL_COLORS 5
+#define TOTAL_RECTS 4
+#define MAX_GLYPHS 5000
 
-const float gama = 1.8f;
+#define DIAGONAL sqrt(SCREEN_HEIGHT * SCREEN_HEIGHT + SCREEN_WIDTH * SCREEN_WIDTH)
+#define DPI (DIAGONAL / SCREEN_DIAG)
+
+#endif

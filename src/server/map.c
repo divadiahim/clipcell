@@ -1,7 +1,7 @@
 #include "map.h"
 
 void newNode(void *list, void *buf, size_t bufsize) {
-   Node *l = (Node *)list;
+   Node *l = list;
    l->next = 0;
    l->size = bufsize + sizeof(Node);
    memcpy(list + sizeof(Node), buf, bufsize);
@@ -10,7 +10,7 @@ void newNode(void *list, void *buf, size_t bufsize) {
 
 void pushNode(void *list, void *buf, size_t bufsize, uint32_t *head) {
    void *poz = list + *head + ((Node *)(list + *head))->size;
-   Node *newnode = (Node *)poz;
+   Node *newnode = poz;
    newnode->next = *head;
    newnode->size = bufsize + sizeof(Node);
    memcpy(poz + sizeof(Node), buf, bufsize);

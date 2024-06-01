@@ -15,16 +15,13 @@
 void client(int fd, void *data, void *infub, size_t size) {
    magic_t magic;
    mimeInit(&magic);
-   uint32_t *tp = (uint32_t *)data;
-   Node *list = data + sizeof(uint32_t);
    void *dlist = data + sizeof(uint32_t);
-   if (list->size == 0) {
-      printf("list is NULL\n");
+   if (((Node *)dlist)->size == 0) {
       newNode(dlist, infub, size);
    } else {
-      pushNode(dlist, infub, size, tp);
+      pushNode(dlist, infub, size, (uint32_t *)data);
    }
-   printList(dlist, *tp, &magic);
+   printList(dlist, *(uint32_t *)data, &magic);
 }
 
 void *read_all(int fd, uint32_t *nread) {
