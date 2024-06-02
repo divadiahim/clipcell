@@ -73,8 +73,8 @@ typedef enum Colors {
 static const uint64_t colors[TOTAL_COLORS] = {
     [BACKG] = 0xFF0e0e10,
     [FOREG] = 0xffc6c5cf,
-    [BORDER] = 0xFFc2c5dc,
-    [BORDER_SELECTED] = 0xFF1f1f23,
+    [BORDER] = 0x0Fc2c5dc,
+    [BORDER_SELECTED] = 0xFFc2c5dc,
     [BOX] = 0xFF1f1f23,
 };
 

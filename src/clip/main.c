@@ -41,6 +41,10 @@ int allocate_shm_file(size_t size) {
    }
    return fd;
 }
+struct lstate {
+   uint16_t currbox;
+   uint16_t pagenr;
+};
 /*wayland*/
 struct my_state {
    struct wl_display *display;
@@ -64,6 +68,7 @@ struct my_state {
    struct xkb_context *xkb_context;
    struct xkb_keymap *xkb_keymap;
    struct repeatInfo rinfo;
+   struct lstate lstate;
    __timer_t timer;
    uint32_t width, height;
    bool closed;
@@ -87,7 +92,7 @@ void draw_pixel(int x, int y, float intensity, struct my_state *state, void *dat
    uint32_t *pixel = &((uint32_t *)data)[y * state->width + x];
    Color bg = getColorFromHex(*pixel);
    bg = apply_gama(bg);
-   Color result = blend(state->currColor, bg, 1 - intensity);
+   Color result = blend(state->currColor, bg, state->currColor.a / 255.0 * (1 - intensity));
    result = apply_inverse_gama(result);
    *pixel = getColorHex(result);
 }
@@ -371,8 +376,9 @@ void drawRoundedRectFilled(int x1, int y1, int x2, int y2, int radius, struct my
    }
 }
 void draw_rect(Rect rect, uint16_t radius, uint16_t thickness, bool filled, Colors backg, Colors border, void *data, struct my_state *state) {
+   int f_thickness = ceil(thickness / 2.0) - 1;
    int x = rect.pos.x;
-   int y = rect.pos.y;
+   int y = rect.pos.y + f_thickness;
    int width = rect.size.x;
    int height = rect.size.y;
 
@@ -386,7 +392,7 @@ void draw_rect(Rect rect, uint16_t radius, uint16_t thickness, bool filled, Colo
    int y0 = y;
    int x1 = x + width;
    int y1 = y + height;
-   int f_thickness = ceil(thickness / 2.0) - 1;
+
    if (filled && radius > 0) {
       state->currColor = getColorFromHex(colorsGamma[backg]);
       drawRoundedRectFilled(x0 + 1, y0 - 1, x1 - 1, y1 - 1, radius - radius / 6, state, data);
@@ -480,7 +486,8 @@ static struct wl_buffer *draw_frame(struct my_state *state) {
    char *tbuf = "Thank you for filling in this form about the opening symposium and your tutorial preferences. Click on the link 'see previous responses' to see a summary of the registrations. ";
    // draw the string in the top center
    for (int i = 0; i < TOTAL_RECTS; i++) {
-      draw_rect(rects[i], BORDER_RADIUS, BORDER_WIDTH, true, BOX, BORDER, data, state);
+      Colors tbrcolor = (i == state->lstate.currbox) ? BORDER_SELECTED : BORDER;
+      draw_rect(rects[i], BORDER_RADIUS, BORDER_WIDTH, true, BOX, tbrcolor, data, state);
    }
    Text text = {.rect = textmap[0]};
    render_text(&text, state->face, tbuf);
@@ -694,6 +701,38 @@ void handle_timer(union sigval sv) {
       // Handle the key press event for state->repeat_key
    }
 }
+void redraw(struct my_state *state, int direction) {
+   int rdry = 0;
+   int trdry = state->height;
+   int index = state->lstate.currbox;
+   if (!direction && index < TOTAL_RECTS && index > 0) {
+      rdry = rects[state->lstate.currbox - 1].pos.y;
+      trdry = rects[state->lstate.currbox].pos.y + rects[state->lstate.currbox].size.y;
+   } else if (direction && index < TOTAL_RECTS - 1) {
+      rdry = rects[state->lstate.currbox].pos.y;
+      trdry = rects[state->lstate.currbox + 1].pos.y + rects[state->lstate.currbox + 1].size.y;
+   }
+   struct wl_buffer *buffer = draw_frame(state);
+   wl_surface_attach(state->surface, buffer, 0, 0);
+   wl_surface_damage(state->surface, rects[state->lstate.currbox].pos.x, rdry, state->width, trdry);
+   wl_surface_commit(state->surface);
+}
+void handle_key(xkb_keysym_t sym, struct my_state *state) {
+   switch (sym) {
+      case XKB_KEY_Up:
+         state->lstate.currbox = mod(state->lstate.currbox - 1, TOTAL_RECTS);
+         printf("currbox: %d\n", state->lstate.currbox);
+         redraw(state, 1);
+         break;
+      case XKB_KEY_Down:
+         state->lstate.currbox = (state->lstate.currbox + 1) % TOTAL_RECTS;
+         redraw(state, 0);
+         break;
+      default:
+         // Handle other keys
+         break;
+   }
+}
 static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
                             uint32_t serial, uint32_t time, uint32_t key,
                             uint32_t state) {
@@ -709,31 +748,20 @@ static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
       return;
    }
    if (state == WL_KEYBOARD_KEY_STATE_PRESSED) {
-      // Key was pressed
       client_state->rinfo.repeat_key = key;
-
-      // Create a timer
-      // i just found out about this it's so op
       struct sigevent sev = {.sigev_notify = SIGEV_THREAD, .sigev_notify_function = handle_timer, .sigev_value.sival_ptr = client_state};
       timer_create(CLOCK_REALTIME, &sev, &client_state->timer);
-
-      // Start the timer
       struct itimerspec its = {.it_value.tv_sec = client_state->rinfo.delay / 1000, .it_value.tv_nsec = (client_state->rinfo.delay % 1000) * 1000000, .it_interval.tv_sec = 0, .it_interval.tv_nsec = 1000000000 / client_state->rinfo.rate};
       timer_settime(client_state->timer, 0, &its, NULL);
    } else {
-      // Key was released
       client_state->rinfo.repeat_key = -1;
-
-      // Stop and destroy the timer
       timer_delete(client_state->timer);
    }
    xkb_state_key_get_utf8(client_state->xkb_state, keycode, buf, sizeof(buf));
-   fprintf(stderr, "utf8: '%s'\n", buf);
-   // client_state->offset++;
-   // struct wl_buffer *buffer = draw_frame(client_state);
-   // wl_surface_attach(client_state->surface, buffer, 0, 0);
-   // wl_surface_damage(client_state->surface, 0, 0, 1024, 1024);
-   // wl_surface_commit(client_state->surface);
+   if (strcmp(action, "press") == 0) {
+      fprintf(stderr, "sym: %d\n", sym);
+      handle_key(sym, client_state);
+   }
 }
 static void wl_keyboard_leave(void *data, struct wl_keyboard *wl_keyboard,
                               uint32_t serial, struct wl_surface *surface) {
@@ -882,8 +910,7 @@ void setup(struct my_state *state) {
    compute_rects(rects, box_base_rect, box_tr_mat);
    compute_rects(textmap, text_base_rect, text_tr_mat);
 }
-void zwlr_layer_surface_v1_init(struct my_state *state, const struct zwlr_layer_surface_v1_listener *layer_surface_listener_vlt)
-{
+void zwlr_layer_surface_v1_init(struct my_state *state, const struct zwlr_layer_surface_v1_listener *layer_surface_listener_vlt) {
    state->surface = wl_compositor_create_surface(state->compositor);
    state->layer_surface = zwlr_layer_shell_v1_get_layer_surface(state->layer_shell, state->surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "clipcell");
    zwlr_layer_surface_v1_add_listener(state->layer_surface, layer_surface_listener_vlt, state);

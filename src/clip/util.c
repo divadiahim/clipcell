@@ -9,6 +9,7 @@ FT_Library library;
 uint64_t colorsGamma[TOTAL_COLORS] = {0};
 
 int max(int a, int b) { return a > b ? a : b; }
+int mod(int a, int b) { return (a % b + b) % b; }
 
 Color apply_gama(Color color) {
    color.r = 255 * pow(color.r / 255, GAMMA);
@@ -42,7 +43,8 @@ Color blend(Color fg, Color bg, float alpha) {
    result.r = alpha * fg.r + (1 - alpha) * bg.r;
    result.g = alpha * fg.g + (1 - alpha) * bg.g;
    result.b = alpha * fg.b + (1 - alpha) * bg.b;
-   result.a = fg.a;
+   // result.a = fg.a;
+   result.a = alpha * fg.a + (1 - alpha) * bg.a;
    return result;
 }
 
