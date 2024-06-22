@@ -43,8 +43,7 @@ Color blend(Color fg, Color bg, float alpha) {
    result.r = alpha * fg.r + (1 - alpha) * bg.r;
    result.g = alpha * fg.g + (1 - alpha) * bg.g;
    result.b = alpha * fg.b + (1 - alpha) * bg.b;
-   // result.a = fg.a;
-   result.a = alpha * fg.a + (1 - alpha) * bg.a;
+   result.a = bg.a;
    return result;
 }
 
@@ -80,4 +79,72 @@ void compute_rects(Rect rects[TOTAL_RECTS], Rect brect, Poz tmat) {
       (rects[i]).pos = translate((rects[i - 1]).pos, tmat);
       (rects[i]).size = brect.size;
    }
+}
+
+/*shared memory support*/
+static void randname(char *buf) {
+   struct timespec ts;
+   clock_gettime(0, &ts);
+   long r = ts.tv_nsec;
+   for (int i = 0; i < 6; ++i) {
+      buf[i] = 'A' + (r & 15) + (r & 16) * 2;
+      r >>= 5;
+   }
+}
+
+int create_shm_file() {
+   int retries = 100;
+   do {
+      char name[] = "/wl_shm-XXXXXX";
+      randname(name + sizeof(name) - 7);
+      --retries;
+      int fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
+      if (fd >= 0) {
+         shm_unlink(name);
+         return fd;
+      }
+   } while (retries > 0 && errno == EEXIST);
+   return -1;
+}
+int allocate_shm_file(size_t size) {
+   int fd = create_shm_file();
+   if (fd < 0)
+      return -1;
+   int ret;
+   do {
+      ret = ftruncate(fd, size);
+   } while (ret < 0 && errno == EINTR);
+   if (ret < 0) {
+      close(fd);
+      return -1;
+   }
+   return fd;
+}
+
+void *open_shm_file_data(char *name) {
+   int fd = shm_open(name, O_RDWR, 0600);
+   if (fd < 0)
+      return NULL;
+   struct stat st;
+   if (fstat(fd, &st) < 0) {
+      close(fd);
+      return NULL;
+   }
+   void *data = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
+   if (data == MAP_FAILED) {
+      close(fd);
+      return NULL;
+   }
+   return data;
+}
+
+entry *build_textlist(void *data, uint32_t size) {
+   printf("Size: %d\n", 5);
+   fflush(stdout);
+   magic_t magic;
+   mimeInit(&magic);
+   void *dlist = data + sizeof(uint32_t);
+   entry *entries = get_entries(dlist, *(uint32_t *)data, &magic, size);
+   mimeClose(&magic);
+   return entries;
 }

@@ -2,48 +2,11 @@
 
 #include "util.h"
 
-/*shared memory support*/
-static void randname(char *buf) {
-   struct timespec ts;
-   clock_gettime(0, &ts);
-   long r = ts.tv_nsec;
-   for (int i = 0; i < 6; ++i) {
-      buf[i] = 'A' + (r & 15) + (r & 16) * 2;
-      r >>= 5;
-   }
-}
-
-static int create_shm_file(void) {
-   int retries = 100;
-   do {
-      char name[] = "/wl_shm-XXXXXX";
-      randname(name + sizeof(name) - 7);
-      --retries;
-      int fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
-      if (fd >= 0) {
-         shm_unlink(name);
-         return fd;
-      }
-   } while (retries > 0 && errno == EEXIST);
-   return -1;
-}
-int allocate_shm_file(size_t size) {
-   int fd = create_shm_file();
-   if (fd < 0)
-      return -1;
-   int ret;
-   do {
-      ret = ftruncate(fd, size);
-   } while (ret < 0 && errno == EINTR);
-   if (ret < 0) {
-      close(fd);
-      return -1;
-   }
-   return fd;
-}
 struct lstate {
    uint16_t currbox;
    uint16_t pagenr;
+   uint16_t currtext;
+   uint16_t enr;
 };
 /*wayland*/
 struct my_state {
@@ -69,6 +32,9 @@ struct my_state {
    struct xkb_keymap *xkb_keymap;
    struct repeatInfo rinfo;
    struct lstate lstate;
+   struct wl_buffer *buffer;
+   void *clipdata;
+   int fd;
    __timer_t timer;
    uint32_t width, height;
    bool closed;
@@ -78,7 +44,7 @@ struct my_state {
 };
 static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer) {
    /* Sent by the compositor when it's no longer using this buffer */
-   wl_buffer_destroy(wl_buffer);
+   // wl_buffer_destroy(wl_buffer);
 }
 
 static const struct wl_buffer_listener wl_buffer_listener = {
@@ -254,11 +220,11 @@ void compute_string_bbox(FT_BBox *abbox, FT_UInt num_glyphs, TGlyph *glyphs) {
 
    *abbox = bbox;
 }
-void render_text(Text *text, FT_Face face, char *str) {
+void render_text(Text *text, FT_Face face, char *str, uint32_t len) {
    int pen_x = 0, pen_y = 0;
    PGlyph glyph;
    glyph = text->glyphs;
-   for (int i = 0; i < strlen(str); i++) {
+   for (int i = 0; i < len; i++) {
       if (pen_x >= text->rect.size.x && str[i] == ' ') {
          continue;
       }
@@ -423,79 +389,51 @@ void draw_rect(Rect rect, uint16_t radius, uint16_t thickness, bool filled, Colo
       }
    }
 }
-static struct wl_buffer *empty_buffer(struct my_state *state) {
-   struct wl_shm_pool *pool;
-   int width = state->width;
-   int height = state->height;
-   int stride = width * 4;
-   int size = stride * height;
-   int fd = allocate_shm_file(size);
-   if (fd < 0) {
-      fprintf(stderr, "creating a buffer file for %d B failed: %m\n", size);
-      exit(1);
-   }
-   void *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-   if (data == MAP_FAILED) {
-      fprintf(stderr, "mmap failed: %m\n");
-      close(fd);
-      exit(1);
-   }
-   pool = wl_shm_create_pool(state->shm, fd, size);
-   struct wl_buffer *buffer = wl_shm_pool_create_buffer(
-       pool, 0, width, height, stride, WL_SHM_FORMAT_ARGB8888);
-   wl_shm_pool_destroy(pool);
-   close(fd);
-   munmap(data, size);
-   wl_buffer_add_listener(buffer, &wl_buffer_listener, NULL);
-   return buffer;
-}
-void fill_bg_no_aa(uint32_t width, uint32_t height, void *data, struct my_state *state) {
+void fill_bg_no_aa(void *data, struct my_state *state) {
    for (int y = 0; y < state->height; ++y) {
       for (int x = 0; x < state->width; ++x) {
          ((uint32_t *)data)[y * state->width + x] = colors[BACKG];
       }
    }
 }
-static struct wl_buffer *draw_frame(struct my_state *state) {
-   struct wl_shm_pool *pool;
+// alocate shm pool
+static void create_shm_pool(struct my_state *state) {
+   int width = state->width;
+   int height = state->height;
+   int stride = width * 4;
+   int size = stride * height;
+   state->fd = allocate_shm_file(size);
+   if (state->fd < 0)
+      errExit("shm_open");
+   struct wl_shm_pool *pool = wl_shm_create_pool(state->shm, state->fd, size);
+   state->buffer = wl_shm_pool_create_buffer(pool, 0, width, height, stride, WL_SHM_FORMAT_ARGB8888);
+   wl_shm_pool_destroy(pool);
+   wl_buffer_add_listener(state->buffer, &wl_buffer_listener, NULL);
+}
+static void draw_frame(struct my_state *state) {
    int width = state->width;
    int height = state->height;
    int stride = width * 4;
    int size = stride * height;
 
-   int fd = allocate_shm_file(size);
-   if (fd < 0) {
-      fprintf(stderr, "creating a buffer file for %d B failed: %m\n", size);
-      exit(1);
-   }
-   void *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+   void *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, state->fd, 0);
    if (data == MAP_FAILED) {
-      fprintf(stderr, "mmap failed: %m\n");
-      close(fd);
-      exit(1);
+      close(state->fd);
+      errExit("mmap");
    }
-   pool = wl_shm_create_pool(state->shm, fd, size);
-   struct wl_buffer *buffer = wl_shm_pool_create_buffer(
-       pool, 0, width, height, stride, WL_SHM_FORMAT_ARGB8888);
-   wl_shm_pool_destroy(pool);
-   close(fd);
 
-   /* fill backgrond with color*/
-   fill_bg_no_aa(width, height, data, state);
-   // const char *init = "Choose from clipboard";
-   char *tbuf = "Thank you for filling in this form about the opening symposium and your tutorial preferences. Click on the link 'see previous responses' to see a summary of the registrations. ";
-   // draw the string in the top center
+   fill_bg_no_aa(data, state);
+   entry *textl = build_textlist(state->clipdata, state->lstate.enr);
    for (int i = 0; i < TOTAL_RECTS; i++) {
       Colors tbrcolor = (i == state->lstate.currbox) ? BORDER_SELECTED : BORDER;
       draw_rect(rects[i], BORDER_RADIUS, BORDER_WIDTH, true, BOX, tbrcolor, data, state);
+      Text text = {.rect = textmap[i]};
+      if (i + state->lstate.pagenr < state->lstate.enr) {
+         render_text(&text, state->face, (char *)textl[i + state->lstate.pagenr].data, textl[i + state->lstate.pagenr].size);
+         draw_text(text, state->face, FOREG, BOX, data);
+      }
    }
-   Text text = {.rect = textmap[0]};
-   render_text(&text, state->face, tbuf);
-   draw_text(text, state->face, FOREG, BOX, data);
-
    munmap(data, size);
-   wl_buffer_add_listener(buffer, &wl_buffer_listener, NULL);
-   return buffer;
 }
 static void xdg_wm_base_ping(void *data, struct xdg_wm_base *xdg_wm_base,
                              uint32_t serial) {
@@ -712,26 +650,40 @@ void redraw(struct my_state *state, int direction) {
       rdry = rects[state->lstate.currbox].pos.y;
       trdry = rects[state->lstate.currbox + 1].pos.y + rects[state->lstate.currbox + 1].size.y;
    }
-   struct wl_buffer *buffer = draw_frame(state);
-   wl_surface_attach(state->surface, buffer, 0, 0);
+   draw_frame(state);
+   wl_surface_attach(state->surface, state->buffer, 0, 0);
    wl_surface_damage(state->surface, rects[state->lstate.currbox].pos.x, rdry, state->width, trdry);
    wl_surface_commit(state->surface);
 }
 void handle_key(xkb_keysym_t sym, struct my_state *state) {
    switch (sym) {
       case XKB_KEY_Up:
-         state->lstate.currbox = mod(state->lstate.currbox - 1, TOTAL_RECTS);
-         printf("currbox: %d\n", state->lstate.currbox);
+         if (state->lstate.currbox > 0) {
+            state->lstate.currbox--;
+         } else if (state->lstate.currtext > 0) {
+            state->lstate.pagenr--;
+         }
+         if (state->lstate.currtext > 0) {
+            state->lstate.currtext--;
+         }
          redraw(state, 1);
          break;
       case XKB_KEY_Down:
-         state->lstate.currbox = (state->lstate.currbox + 1) % TOTAL_RECTS;
+         if (state->lstate.currbox < TOTAL_RECTS - 1)
+            state->lstate.currbox++;
+         else if (state->lstate.currtext < state->lstate.enr - 1)
+            state->lstate.pagenr++;
+         if (state->lstate.currtext < state->lstate.enr - 1)
+            state->lstate.currtext++;
          redraw(state, 0);
          break;
       default:
-         // Handle other keys
          break;
    }
+   // print enr
+   printf("enr: %d\n", state->lstate.enr);
+   printf("currtext: %d\n", state->lstate.currtext);
+   printf("pagenr: %d\n", state->lstate.pagenr);
 }
 static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
                             uint32_t serial, uint32_t time, uint32_t key,
@@ -869,8 +821,9 @@ static void layer_surface_configure(void *data,
    zwlr_layer_surface_v1_ack_configure(surface, serial);
    state->width = width;
    state->height = height;
-   struct wl_buffer *buffer = draw_frame(state);
-   wl_surface_attach(state->surface, buffer, 0, 0);
+   create_shm_pool(state);
+   draw_frame(state);
+   wl_surface_attach(state->surface, state->buffer, 0, 0);
    wl_surface_damage(state->surface, 0, 0, width, height);
    wl_surface_commit(state->surface);
 }
@@ -881,8 +834,9 @@ static void layer_surface_configure_temp(void *data,
    zwlr_layer_surface_v1_ack_configure(surface, serial);
    state->width = width;
    state->height = height;
-   struct wl_buffer *buffer = empty_buffer(state);
-   wl_surface_attach(state->surface, buffer, 0, 0);
+   create_shm_pool(state);
+   draw_frame(state);
+   wl_surface_attach(state->surface, state->buffer, 0, 0);
    wl_surface_damage(state->surface, 0, 0, width, height);
    wl_surface_commit(state->surface);
 }
@@ -909,6 +863,11 @@ void setup(struct my_state *state) {
    precompute_gama();
    compute_rects(rects, box_base_rect, box_tr_mat);
    compute_rects(textmap, text_base_rect, text_tr_mat);
+   state->clipdata = open_shm_file_data("OS");
+   if (state->clipdata == NULL) {
+      errExit("open_shm_file_data");
+   }
+   state->lstate.enr = get_enr(state->clipdata);
 }
 void zwlr_layer_surface_v1_init(struct my_state *state, const struct zwlr_layer_surface_v1_listener *layer_surface_listener_vlt) {
    state->surface = wl_compositor_create_surface(state->compositor);
@@ -921,10 +880,7 @@ void zwlr_layer_surface_v1_init(struct my_state *state, const struct zwlr_layer_
 int main(int argc, char const *argv[]) {
    struct my_state state = {0};
    struct wl_display *display = wl_display_connect(NULL);
-   if (!display) {
-      fprintf(stderr, "Can't connect to display\n");
-      return 1;
-   }
+   ERRCHECK(display, "wl_display_connect");
    fprintf(stderr, "connected to display\n");
    struct wl_registry *registry = wl_display_get_registry(display);
    setup(&state);

@@ -18,32 +18,57 @@ void pushNode(void *list, void *buf, size_t bufsize, uint32_t *head) {
    return;
 }
 
-void printList(void *list, uint32_t head, magic_t *magic) {
+int get_enr(void *data) {
+   void *list = data + sizeof(uint32_t);
+   uint32_t head = *(uint32_t *)data;
+   int count = 0;
+   if (list == NULL) {
+      return 0;
+   }
    void *poz = list + head;
    Node *current = (Node *)poz;
    uint8_t exitcount;
    exitcount = head == 0 ? 1 : 2;
+
    do {
       if (current->next == 0) {
          exitcount--;
       }
-      printf("Size: %d\n", current->size);
-      printf("Next: %d\n", current->next);
-      getMime(magic, poz + 2 * sizeof(uint32_t), current->size - 2 * sizeof(uint32_t));
-      // print_data(poz + 2 * sizeof(uint32_t), current->size - 2 * sizeof(uint32_t));
-      printf("\n");
+      count++;
       poz = list + current->next;
       current = (Node *)poz;
    } while (exitcount);
-   return;
+   return count;
 }
 
-void print_data(void *data, size_t size) {
-   for (int i = 0; i < size; i++) {
-      printf("%c", ((char *)data)[i]);
+entry *get_entries(void *list, uint32_t head, magic_t *magic, int count) {
+   if (count == 0) {
+      return NULL;
    }
-   fflush(stdout);
+   entry *entries = malloc(count * sizeof(entry));
+   void *poz = list + head;
+   Node *current = (Node *)poz;
+   uint8_t exitcount;
+   exitcount = head == 0 ? 1 : 2;
+   for (int i = 0; i < count; i++) {
+      if (current->next == 0) {
+         exitcount--;
+      }
+      entries[i].data = poz + 2 * sizeof(uint32_t);
+      entries[i].size = current->size - 2 * sizeof(uint32_t);
+      entries[i].mime = getMime(magic, poz + 2 * sizeof(uint32_t), current->size - 2 * sizeof(uint32_t));
+      poz = list + current->next;
+      current = (Node *)poz;
+   }
+   return entries;
 }
+
+// void print_data(void *data, size_t size) {
+//    for (int i = 0; i < size; i++) {
+//       printf("%c", ((char *)data)[i]);
+//    }
+//    fflush(stdout);
+// }
 
 void mimeInit(magic_t *magic) {
    if (!(*magic = magic_open(MAGIC_MIME_TYPE))) {
@@ -59,12 +84,11 @@ void mimeClose(magic_t *magic) {
    return;
 }
 
-void getMime(magic_t *magic, void *data, size_t size) {
+const char *getMime(magic_t *magic, void *data, size_t size) {
    const char *mime = magic_buffer(*magic, data, size);
    if (mime == NULL) {
       perror("failed to get mime type");
-      return;
+      return NULL;
    }
-   printf("Mime type: %s\n", mime);
-   return;
+   return mime;
 }

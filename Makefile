@@ -1,9 +1,12 @@
 CC = gcc
 CCFLAGS = -Wall -O2 -Wno-traditional
-LFLAGS = -lm -lwayland-client -lrt $(shell pkg-config --libs freetype2) $(shell pkg-config --cflags freetype2) -lxkbcommon 
+LFLAGS = -lm -lwayland-client -lrt $(shell pkg-config --libs freetype2) $(shell pkg-config --cflags freetype2) $(shell pkg-config --libs libmagic) -lxkbcommon 
 SRV_LFLAGS = $(shell pkg-config --libs libmagic) 
+# LFLAGS += SRV_LFLAGS
 
 SRC_FILES_CLIP := $(wildcard src/clip/*.c)
+SRC_FILES_CLIP += $(wildcard src/server/*.c)
+SRC_FILES_CLIP := $(filter-out src/server/server.c, $(SRC_FILES_CLIP))
 SRC_FILES_SRV := $(wildcard src/server/*.c)
 SRC_FILES_SRV := $(filter-out src/server/client.c, $(SRC_FILES_SRV))
 

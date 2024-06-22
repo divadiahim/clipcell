@@ -1,7 +1,4 @@
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/shm.h>
-#include <sys/stat.h>
+
 
 #include "map.h"
 
@@ -12,7 +9,7 @@
       exit(EXIT_FAILURE);    \
    } while (0)
 
-void client(int fd, void *data, void *infub, size_t size) {
+void client(void *data, void *infub, size_t size) {
    magic_t magic;
    mimeInit(&magic);
    void *dlist = data + sizeof(uint32_t);
@@ -82,7 +79,7 @@ int main(int argc, char *argv[]) {
       errExit("mmap");
    if (new)
       memset(data, 0, shmbufsize);
-   (rst == 1) ? shm_unlink(name) : client(fd, data, buf, bufsize);
+   (rst == 1) ? shm_unlink(name) : client(data, buf, bufsize);
    munmap(data, shmbufsize);
    free(buf);
    return 0;
