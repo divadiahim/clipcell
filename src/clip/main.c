@@ -223,11 +223,11 @@ void compute_string_bbox(FT_BBox *abbox, FT_UInt num_glyphs, TGlyph *glyphs) {
 }
 void render_text(Text *text, Rect crect, FT_Face face, char *str, uint32_t len) {
    memset(text, 0, sizeof(Text));
-   int pen_x = 0, pen_y = 0;
+   int pen_x = crect.pos.x, pen_y = 0;
    PGlyph glyph;
    glyph = text->glyphs;
    for (int i = 0; i < len; i++) {
-      if (pen_x >= crect.size.x && str[i] == ' ') {
+      if (pen_x >= crect.size.x - crect.pos.x && str[i] == ' ') {
          continue;
       }
       if (strchr(exclchars, str[i]) != NULL) {
@@ -239,7 +239,7 @@ void render_text(Text *text, Rect crect, FT_Face face, char *str, uint32_t len) 
       glyph->pos.x = pen_x;
       if (pen_x >= crect.size.x) {
          pen_y += face->size->metrics.height >> 6;
-         pen_x = 0;
+         pen_x = crect.pos.x;
       }
       if (pen_y >= crect.size.y) {
          break;
@@ -262,9 +262,7 @@ void draw_text(Text text, Rect crect, FT_Face face, Colors FG, Colors BG, void *
    for (int n = 0; n < text.num_glyphs; n++) {
       FTCHECK(FT_Glyph_Copy(text.glyphs[n].image, &image), "copy failed");
       FT_Glyph_Get_CBox(image, ft_glyph_bbox_pixels, &bbox);
-      uint32_t pozz = 0;
-      if (text.glyphs[n].pos.x + pozz >= crect.size.x) {
-         crect.size.x = text.glyphs[n].pos.x + pozz;
+      if (text.glyphs[n].pos.x >= crect.size.x) {
          pen.x = start.x;
          o += face->size->metrics.height >> 6;
       }
