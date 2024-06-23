@@ -190,9 +190,7 @@ void compute_string_bbox(FT_BBox *abbox, FT_UInt num_glyphs, TGlyph *glyphs) {
 
    for (int n = 0; n < num_glyphs; n++) {
       FT_BBox glyph_bbox;
-
-      FT_Glyph_Get_CBox(glyphs[n].image, ft_glyph_bbox_pixels,
-                        &glyph_bbox);
+      FT_Glyph_Get_CBox(glyphs[n].image, ft_glyph_bbox_pixels, &glyph_bbox);
 
       glyph_bbox.xMin += glyphs[n].pos.x;
       glyph_bbox.xMax += glyphs[n].pos.x;
@@ -211,29 +209,60 @@ void compute_string_bbox(FT_BBox *abbox, FT_UInt num_glyphs, TGlyph *glyphs) {
       if (glyph_bbox.yMax > bbox.yMax)
          bbox.yMax = glyph_bbox.yMax;
    }
-
    if (bbox.xMin > bbox.xMax) {
       bbox.xMin = 0;
       bbox.yMin = 0;
       bbox.xMax = 0;
       bbox.yMax = 0;
    }
-
    *abbox = bbox;
 }
+uint32_t *utf8_to_utf32(const char *utf8_str, uint32_t *out_len) {
+   uint32_t *utf32_str = NULL;
+   uint32_t len = 0;
+   while (*utf8_str) {
+      if ((*utf8_str == ' ' && *(utf8_str + 1) == ' ') || strchr(exclchars, *utf8_str)) {
+         utf8_str++;
+         continue;
+      }
+      uint32_t codepoint = 0;
+      uint8_t c = *utf8_str++;
+      if (c <= 0x7F) {
+         codepoint = c;
+      } else if (c <= 0xBF) {
+         // Invalid byte, ignore it
+         continue;
+      } else if (c <= 0xDF) {
+         codepoint = (c & 0x1F) << 6;
+         codepoint |= (*utf8_str++ & 0x3F);
+      } else if (c <= 0xEF) {
+         codepoint = (c & 0x0F) << 12;
+         codepoint |= (*utf8_str++ & 0x3F) << 6;
+         codepoint |= (*utf8_str++ & 0x3F);
+      } else if (c <= 0xF7) {
+         codepoint = (c & 0x07) << 18;
+         codepoint |= (*utf8_str++ & 0x3F) << 12;
+         codepoint |= (*utf8_str++ & 0x3F) << 6;
+         codepoint |= (*utf8_str++ & 0x3F);
+      }
+      utf32_str = (uint32_t *)realloc(utf32_str, (len + 1) * sizeof(uint32_t));
+      utf32_str[len++] = codepoint;
+   }
+   *out_len = len;
+   return utf32_str;
+}
+
 void render_text(Text *text, Rect crect, FT_Face face, char *str, uint32_t len) {
    memset(text, 0, sizeof(Text));
+   uint32_t utf32_len = 0;
+   uint32_t *utf32_str = utf8_to_utf32(str, &utf32_len);
    int pen_x = crect.pos.x, pen_y = 0;
-   PGlyph glyph;
-   glyph = text->glyphs;
-   for (int i = 0; i < len; i++) {
-      if (pen_x >= crect.size.x - crect.pos.x && str[i] == ' ') {
+   PGlyph glyph = text->glyphs;
+   for (uint32_t i = 0; i < utf32_len; i++) {
+      if ((pen_x >= crect.size.x - crect.pos.x && utf32_str[i] == ' ')) {
          continue;
       }
-      if (strchr(exclchars, str[i]) != NULL) {
-         continue;
-      }
-      FTCHECK(FT_Load_Glyph(face, FT_Get_Char_Index(face, str[i]), 0), "Failed to load glyph");
+      FTCHECK(FT_Load_Glyph(face, FT_Get_Char_Index(face, utf32_str[i]), 0), "Failed to load glyph");
       FTCHECK(FT_Get_Glyph(face->glyph, &glyph->image), "Failed to get glyph");
       FT_Glyph_Transform(glyph->image, 0, &glyph->pos);
       glyph->pos.x = pen_x;
@@ -250,20 +279,19 @@ void render_text(Text *text, Rect crect, FT_Face face, char *str, uint32_t len) 
    }
    text->num_glyphs = glyph - text->glyphs;
    compute_string_bbox(&(text->string_bbox), text->num_glyphs, text->glyphs);
+   free(utf32_str);
 }
 void draw_text(Text text, Rect crect, FT_Face face, Colors FG, Colors BG, void *data) {
    FT_Glyph image;
-   FT_Vector pen;
-   FT_Vector start;
+   FT_Vector pen = {0};
    FT_BBox bbox;
    int o = 0;
-   start.x = ((crect.pos.x)) * 64;
-   pen = start;
+   pen.x = crect.pos.x * 64;
    for (int n = 0; n < text.num_glyphs; n++) {
       FTCHECK(FT_Glyph_Copy(text.glyphs[n].image, &image), "copy failed");
       FT_Glyph_Get_CBox(image, ft_glyph_bbox_pixels, &bbox);
       if (text.glyphs[n].pos.x >= crect.size.x) {
-         pen.x = start.x;
+         pen.x = ((crect.pos.x)) * 64;
          o += face->size->metrics.height >> 6;
       }
       FT_Glyph_Transform(image, 0, &pen);
