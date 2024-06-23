@@ -7,6 +7,7 @@ struct lstate {
    uint16_t pagenr;
    uint16_t currtext;
    uint16_t enr;
+   uint16_t old_pagenr;
 };
 /*wayland*/
 struct my_state {
@@ -34,13 +35,13 @@ struct my_state {
    struct lstate lstate;
    struct wl_buffer *buffer;
    void *clipdata;
+   Text nntextmap[TOTAL_RECTS];
    int fd;
    __timer_t timer;
    uint32_t width, height;
    bool closed;
    FT_Face face;
    Color currColor;
-   rectC rectsC[TOTAL_RECTS];
 };
 static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer) {
    /* Sent by the compositor when it's no longer using this buffer */
@@ -220,23 +221,27 @@ void compute_string_bbox(FT_BBox *abbox, FT_UInt num_glyphs, TGlyph *glyphs) {
 
    *abbox = bbox;
 }
-void render_text(Text *text, FT_Face face, char *str, uint32_t len) {
+void render_text(Text *text, Rect crect, FT_Face face, char *str, uint32_t len) {
+   memset(text, 0, sizeof(Text));
    int pen_x = 0, pen_y = 0;
    PGlyph glyph;
    glyph = text->glyphs;
    for (int i = 0; i < len; i++) {
-      if (pen_x >= text->rect.size.x && str[i] == ' ') {
+      if (pen_x >= crect.size.x && str[i] == ' ') {
+         continue;
+      }
+      if (strchr(exclchars, str[i]) != NULL) {
          continue;
       }
       FTCHECK(FT_Load_Glyph(face, FT_Get_Char_Index(face, str[i]), 0), "Failed to load glyph");
       FTCHECK(FT_Get_Glyph(face->glyph, &glyph->image), "Failed to get glyph");
       FT_Glyph_Transform(glyph->image, 0, &glyph->pos);
       glyph->pos.x = pen_x;
-      if (pen_x >= text->rect.size.x) {
+      if (pen_x >= crect.size.x) {
          pen_y += face->size->metrics.height >> 6;
          pen_x = 0;
       }
-      if (pen_y >= text->rect.size.y) {
+      if (pen_y >= crect.size.y) {
          break;
       }
       glyph->pos.y = pen_y;
@@ -246,32 +251,27 @@ void render_text(Text *text, FT_Face face, char *str, uint32_t len) {
    text->num_glyphs = glyph - text->glyphs;
    compute_string_bbox(&(text->string_bbox), text->num_glyphs, text->glyphs);
 }
-void draw_text(Text text, FT_Face face, Colors FG, Colors BG, void *data) {
+void draw_text(Text text, Rect crect, FT_Face face, Colors FG, Colors BG, void *data) {
    FT_Glyph image;
    FT_Vector pen;
    FT_Vector start;
    FT_BBox bbox;
    int o = 0;
-
-   // uint32_t string_width = (text.string_bbox.xMax - text.string_bbox.xMin) / 64;
-   // uint32_t string_height = (text.string_bbox.yMax - text.string_bbox.yMin) / 64;
-
-   start.x = ((text.rect.pos.x)) * 64;
-   start.y = ((text.rect.pos.y) - face->size->metrics.height) / 2;
+   start.x = ((crect.pos.x)) * 64;
    pen = start;
    for (int n = 0; n < text.num_glyphs; n++) {
       FTCHECK(FT_Glyph_Copy(text.glyphs[n].image, &image), "copy failed");
       FT_Glyph_Get_CBox(image, ft_glyph_bbox_pixels, &bbox);
       uint32_t pozz = 0;
-      if (text.glyphs[n].pos.x + pozz >= text.rect.size.x) {
-         text.rect.size.x = text.glyphs[n].pos.x + pozz;
+      if (text.glyphs[n].pos.x + pozz >= crect.size.x) {
+         crect.size.x = text.glyphs[n].pos.x + pozz;
          pen.x = start.x;
          o += face->size->metrics.height >> 6;
       }
       FT_Glyph_Transform(image, 0, &pen);
       FTCHECK(FT_Glyph_To_Bitmap(&image, FT_RENDER_MODE_LCD, 0, 1), "rendering failed");
       FT_BitmapGlyph bit = (FT_BitmapGlyph)image;
-      if (o > text.rect.size.y) {
+      if (o > crect.size.y) {
          return;
       }
       int lcd_ww = bit->bitmap.width / 3;
@@ -288,7 +288,7 @@ void draw_text(Text text, FT_Face face, Colors FG, Colors BG, void *data) {
             k++;
             z += bit->bitmap.pitch - bit->bitmap.width;
          }
-         ((uint32_t *)data)[p + (o + k + text.rect.pos.y - bit->top) * WINDOW_WIDTH +
+         ((uint32_t *)data)[p + (o + k + crect.pos.y - bit->top + (face->size->metrics.height >> 7)) * WINDOW_WIDTH +
                             bit->left] = getColorHex(result);
       }
       pen.x += image->advance.x >> 10;
@@ -396,7 +396,6 @@ void fill_bg_no_aa(void *data, struct my_state *state) {
       }
    }
 }
-// alocate shm pool
 static void create_shm_pool(struct my_state *state) {
    int width = state->width;
    int height = state->height;
@@ -421,18 +420,18 @@ static void draw_frame(struct my_state *state) {
       close(state->fd);
       errExit("mmap");
    }
-
    fill_bg_no_aa(data, state);
    entry *textl = build_textlist(state->clipdata, state->lstate.enr);
    for (int i = 0; i < TOTAL_RECTS; i++) {
       Colors tbrcolor = (i == state->lstate.currbox) ? BORDER_SELECTED : BORDER;
       draw_rect(rects[i], BORDER_RADIUS, BORDER_WIDTH, true, BOX, tbrcolor, data, state);
-      Text text = {.rect = textmap[i]};
       if (i + state->lstate.pagenr < state->lstate.enr) {
-         render_text(&text, state->face, (char *)textl[i + state->lstate.pagenr].data, textl[i + state->lstate.pagenr].size);
-         draw_text(text, state->face, FOREG, BOX, data);
+         if (state->lstate.old_pagenr != state->lstate.pagenr)
+            render_text(&state->nntextmap[i], textmap[i], state->face, (char *)textl[i + state->lstate.pagenr].data, textl[i + state->lstate.pagenr].size);
+         draw_text(state->nntextmap[i], textmap[i], state->face, FOREG, BOX, data);
       }
    }
+   state->lstate.old_pagenr = state->lstate.pagenr;
    munmap(data, size);
 }
 static void xdg_wm_base_ping(void *data, struct xdg_wm_base *xdg_wm_base,
@@ -868,6 +867,7 @@ void setup(struct my_state *state) {
       errExit("open_shm_file_data");
    }
    state->lstate.enr = get_enr(state->clipdata);
+   state->lstate.old_pagenr = UINT16_MAX;
 }
 void zwlr_layer_surface_v1_init(struct my_state *state, const struct zwlr_layer_surface_v1_listener *layer_surface_listener_vlt) {
    state->surface = wl_compositor_create_surface(state->compositor);

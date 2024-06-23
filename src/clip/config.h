@@ -13,7 +13,8 @@
 #define BOX_START 50
 #define BOX_HEIGHT 75
 #define BOX_PADDING 10
-#define BOX_SPACING 15
+#define TEXT_PADDING 1
+#define BOX_SPACING 5
 #define BORDER_WIDTH 5
 #define BORDER_RADIUS 10
 

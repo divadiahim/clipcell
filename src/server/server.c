@@ -18,7 +18,7 @@ void client(void *data, void *infub, size_t size) {
    } else {
       pushNode(dlist, infub, size, (uint32_t *)data);
    }
-   printList(dlist, *(uint32_t *)data, &magic);
+   // printList(dlist, *(uint32_t *)data, &magic);
 }
 
 void *read_all(int fd, uint32_t *nread) {

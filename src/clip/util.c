@@ -7,6 +7,7 @@ Rect rects[TOTAL_RECTS];
 Rect textmap[TOTAL_RECTS];
 FT_Library library;
 uint64_t colorsGamma[TOTAL_COLORS] = {0};
+char exclchars[] = {'\n', '\t', '\r', '\v', '\f'};
 
 int max(int a, int b) { return a > b ? a : b; }
 int mod(int a, int b) { return (a % b + b) % b; }
@@ -78,6 +79,7 @@ void compute_rects(Rect rects[TOTAL_RECTS], Rect brect, Poz tmat) {
    for (int i = 1; i < TOTAL_RECTS; i++) {
       (rects[i]).pos = translate((rects[i - 1]).pos, tmat);
       (rects[i]).size = brect.size;
+      printf("Rect %d: %d %d %d %d\n", i, (rects[i]).pos.x, (rects[i]).pos.y, (rects[i]).size.x, (rects[i]).size.y);
    }
 }
 
