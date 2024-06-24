@@ -85,7 +85,7 @@ void mimeClose(magic_t *magic) {
 }
 
 const char *getMime(magic_t *magic, void *data, size_t size) {
-   const char *mime = magic_buffer(*magic, data, size);
+   const char *mime = strdup(magic_buffer(*magic, data, size));
    if (mime == NULL) {
       perror("failed to get mime type");
       return NULL;

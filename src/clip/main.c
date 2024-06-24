@@ -1,5 +1,6 @@
 #include <stdint.h>
 
+#include "imgload.h"
 #include "util.h"
 
 struct lstate {
@@ -251,15 +252,14 @@ uint32_t *utf8_to_utf32(const char *utf8_str, uint32_t *out_len) {
    *out_len = len;
    return utf32_str;
 }
-
-void render_text(Text *text, Rect crect, FT_Face face, char *str, uint32_t len) {
+void render_text(Text *text, Rect crect, FT_Face face, const char *str, uint32_t len) {
    memset(text, 0, sizeof(Text));
    uint32_t utf32_len = 0;
    uint32_t *utf32_str = utf8_to_utf32(str, &utf32_len);
    int pen_x = crect.pos.x, pen_y = 0;
    PGlyph glyph = text->glyphs;
    for (uint32_t i = 0; i < utf32_len; i++) {
-      if ((pen_x >= crect.size.x - crect.pos.x && utf32_str[i] == ' ')) {
+      if ((pen_x >= crect.size.x && utf32_str[i] == ' ')) {
          continue;
       }
       FTCHECK(FT_Load_Glyph(face, FT_Get_Char_Index(face, utf32_str[i]), 0), "Failed to load glyph");
@@ -435,6 +435,25 @@ static void create_shm_pool(struct my_state *state) {
    wl_shm_pool_destroy(pool);
    wl_buffer_add_listener(state->buffer, &wl_buffer_listener, NULL);
 }
+static void draw_png_bytep(png_bytep *imgbuf, int w, int h, void *data, struct my_state *state, Colors backg) {
+   if(imgbuf == NULL)
+      return;
+   for (int y = 0; y < h; y++) {
+      for (int x = 0; x < w; x++) {
+         uint32_t pixel = 0;
+         Color bg = getColorFromHex(colors[backg]);
+         Color fg;
+         fg.r = imgbuf[y][x * 4 + 0];
+         fg.g = imgbuf[y][x * 4 + 1];
+         fg.b = imgbuf[y][x * 4 + 2];
+         fg.a = imgbuf[y][x * 4 + 3];
+         Color result = blend(fg, bg, fg.a / 255.0);
+         pixel = getColorHex(result);
+         ((uint32_t *)data)[(y + 90) * state->width + (x + 30)] = pixel;
+      }
+   }
+}
+
 static void draw_frame(struct my_state *state) {
    int width = state->width;
    int height = state->height;
@@ -447,7 +466,16 @@ static void draw_frame(struct my_state *state) {
       errExit("mmap");
    }
    fill_bg_no_aa(data, state);
+   uint32_t w, h;
+   png_bytep *imgbuf = NULL;
+
    entry *textl = build_textlist(state->clipdata, state->lstate.enr);
+   if(strcmp(textl[0].mime, "image/png") == 0) {
+      printf("Image\n");
+      imgbuf = get_buf_from_png(textl[0].data, textl[0].size, &w, &h);
+      // munmap(data, size);
+      // return;
+   }
    for (int i = 0; i < TOTAL_RECTS; i++) {
       Colors tbrcolor = (i == state->lstate.currbox) ? BORDER_SELECTED : BORDER;
       draw_rect(rects[i], BORDER_RADIUS, BORDER_WIDTH, true, BOX, tbrcolor, data, state);
@@ -458,6 +486,7 @@ static void draw_frame(struct my_state *state) {
       }
    }
    state->lstate.old_pagenr = state->lstate.pagenr;
+   draw_png_bytep(imgbuf, w, h, data, state, BOX);
    munmap(data, size);
 }
 static void xdg_wm_base_ping(void *data, struct xdg_wm_base *xdg_wm_base,
