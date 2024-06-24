@@ -41,11 +41,11 @@ int get_enr(void *data) {
    return count;
 }
 
-entry *get_entries(void *list, uint32_t head, magic_t *magic, int count) {
+Entry *get_entries(void *list, uint32_t head, magic_t *magic, int count) {
    if (count == 0) {
       return NULL;
    }
-   entry *entries = malloc(count * sizeof(entry));
+   Entry *entries = malloc(count * sizeof(Entry));
    void *poz = list + head;
    Node *current = (Node *)poz;
    uint8_t exitcount;

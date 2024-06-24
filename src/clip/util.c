@@ -140,13 +140,13 @@ void *open_shm_file_data(char *name) {
    return data;
 }
 
-entry *build_textlist(void *data, uint32_t size) {
+Entry *build_textlist(void *data, uint32_t size) {
    printf("Size: %d\n", 5);
    fflush(stdout);
    magic_t magic;
    mimeInit(&magic);
    void *dlist = data + sizeof(uint32_t);
-   entry *entries = get_entries(dlist, *(uint32_t *)data, &magic, size);
+   Entry *entries = get_entries(dlist, *(uint32_t *)data, &magic, size);
    mimeClose(&magic);
    return entries;
 }

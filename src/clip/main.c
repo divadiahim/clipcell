@@ -14,6 +14,7 @@ struct lstate {
 struct maps {
    Text nntextmap[TOTAL_RECTS];
    Image imgmap[TOTAL_RECTS];
+   Entry *textl;
 };
 /*wayland*/
 struct my_state {
@@ -438,20 +439,20 @@ static void draw_frame(struct my_state *state) {
       errExit("mmap");
    }
    fill_bg_no_aa(data, state);
-   entry *textl = build_textlist(state->clipdata, state->lstate.enr);
    for (int i = 0; i < TOTAL_RECTS; i++) {
       Colors tbrcolor = (i == state->lstate.currbox) ? BORDER_SELECTED : BORDER;
       draw_rect(rects[i], BORDER_RADIUS, BORDER_WIDTH, true, BOX, tbrcolor, data, state);
-      if (i + state->lstate.pagenr < state->lstate.enr) {
-         if (state->lstate.old_pagenr != state->lstate.pagenr) { // rerender only if page changed
+      uint32_t ai;
+      if ((ai = i + state->lstate.pagenr) < state->lstate.enr) {
+         if (state->lstate.old_pagenr != state->lstate.pagenr) {  // rerender only if page changed
             memset(&state->map.nntextmap[i], 0, sizeof(Text));
             memset(&state->map.imgmap[i], 0, sizeof(Image));
-            switch (textl[i + state->lstate.pagenr].mime) {
+            switch (state->map.textl[ai].mime) {
                case MIME_TEXT:
-                  render_text(&state->map.nntextmap[i], textmap[i], state->face, (char *)textl[i + state->lstate.pagenr].data, textl[i + state->lstate.pagenr].size);
+                  render_text(&state->map.nntextmap[i], textmap[i], state->face, (char *)state->map.textl[ai].data, state->map.textl[ai].size);
                   break;
                case MIME_IMAGE_PNG:
-                  get_buf_from_png(&state->map.imgmap[i], textl[i + state->lstate.pagenr].data, textl[i + state->lstate.pagenr].size);
+                  get_buf_from_png(&state->map.imgmap[i], state->map.textl[ai].data, state->map.textl[ai].size);
                   break;
                default:
                   break;
@@ -898,6 +899,7 @@ void setup(struct my_state *state) {
    }
    state->lstate.enr = get_enr(state->clipdata);
    state->lstate.old_pagenr = UINT16_MAX;
+   state->map.textl = build_textlist(state->clipdata, state->lstate.enr);
 }
 void zwlr_layer_surface_v1_init(struct my_state *state, const struct zwlr_layer_surface_v1_listener *layer_surface_listener_vlt) {
    state->surface = wl_compositor_create_surface(state->compositor);
