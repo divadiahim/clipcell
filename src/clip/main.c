@@ -10,6 +10,11 @@ struct lstate {
    uint16_t enr;
    uint16_t old_pagenr;
 };
+
+struct maps {
+   Text nntextmap[TOTAL_RECTS];
+   Image imgmap[TOTAL_RECTS];
+};
 /*wayland*/
 struct my_state {
    struct wl_display *display;
@@ -35,8 +40,8 @@ struct my_state {
    struct repeatInfo rinfo;
    struct lstate lstate;
    struct wl_buffer *buffer;
+   struct maps map;
    void *clipdata;
-   Text nntextmap[TOTAL_RECTS];
    int fd;
    __timer_t timer;
    uint32_t width, height;
@@ -218,40 +223,6 @@ void compute_string_bbox(FT_BBox *abbox, FT_UInt num_glyphs, TGlyph *glyphs) {
    }
    *abbox = bbox;
 }
-uint32_t *utf8_to_utf32(const char *utf8_str, uint32_t *out_len) {
-   uint32_t *utf32_str = NULL;
-   uint32_t len = 0;
-   while (*utf8_str) {
-      if ((*utf8_str == ' ' && *(utf8_str + 1) == ' ') || strchr(exclchars, *utf8_str)) {
-         utf8_str++;
-         continue;
-      }
-      uint32_t codepoint = 0;
-      uint8_t c = *utf8_str++;
-      if (c <= 0x7F) {
-         codepoint = c;
-      } else if (c <= 0xBF) {
-         // Invalid byte, ignore it
-         continue;
-      } else if (c <= 0xDF) {
-         codepoint = (c & 0x1F) << 6;
-         codepoint |= (*utf8_str++ & 0x3F);
-      } else if (c <= 0xEF) {
-         codepoint = (c & 0x0F) << 12;
-         codepoint |= (*utf8_str++ & 0x3F) << 6;
-         codepoint |= (*utf8_str++ & 0x3F);
-      } else if (c <= 0xF7) {
-         codepoint = (c & 0x07) << 18;
-         codepoint |= (*utf8_str++ & 0x3F) << 12;
-         codepoint |= (*utf8_str++ & 0x3F) << 6;
-         codepoint |= (*utf8_str++ & 0x3F);
-      }
-      utf32_str = (uint32_t *)realloc(utf32_str, (len + 1) * sizeof(uint32_t));
-      utf32_str[len++] = codepoint;
-   }
-   *out_len = len;
-   return utf32_str;
-}
 void render_text(Text *text, Rect crect, FT_Face face, const char *str, uint32_t len) {
    memset(text, 0, sizeof(Text));
    uint32_t utf32_len = 0;
@@ -423,33 +394,34 @@ void fill_bg_no_aa(void *data, struct my_state *state) {
    }
 }
 static void create_shm_pool(struct my_state *state) {
-   int width = state->width;
-   int height = state->height;
-   int stride = width * 4;
-   int size = stride * height;
+   uint32_t width = state->width;
+   uint32_t height = state->height;
+   uint32_t stride = width * 4;
+   uint32_t size = stride * height;
    state->fd = allocate_shm_file(size);
-   if (state->fd < 0)
+   if (state->fd < 0) {
       errExit("shm_open");
+   }
    struct wl_shm_pool *pool = wl_shm_create_pool(state->shm, state->fd, size);
    state->buffer = wl_shm_pool_create_buffer(pool, 0, width, height, stride, WL_SHM_FORMAT_ARGB8888);
    wl_shm_pool_destroy(pool);
    wl_buffer_add_listener(state->buffer, &wl_buffer_listener, NULL);
 }
-static void draw_png_bytep(png_bytep *imgbuf, int w, int h, void *data, struct my_state *state, Colors backg) {
-   if(imgbuf == NULL)
+static void draw_png_bytep(Image img, Poz pos, void *data, struct my_state *state) {
+   if (img.data == NULL)
       return;
-   for (int y = 0; y < h; y++) {
-      for (int x = 0; x < w; x++) {
+   for (int y = 0; y < img.height; y++) {
+      for (int x = 0; x < img.height; x++) {
          uint32_t pixel = 0;
-         Color bg = getColorFromHex(colors[backg]);
+         Color bg = getColorFromHex(colors[BOX]);
          Color fg;
-         fg.r = imgbuf[y][x * 4 + 0];
-         fg.g = imgbuf[y][x * 4 + 1];
-         fg.b = imgbuf[y][x * 4 + 2];
-         fg.a = imgbuf[y][x * 4 + 3];
+         fg.r = img.data[y][x * 4 + 0];
+         fg.g = img.data[y][x * 4 + 1];
+         fg.b = img.data[y][x * 4 + 2];
+         fg.a = img.data[y][x * 4 + 3];
          Color result = blend(fg, bg, fg.a / 255.0);
          pixel = getColorHex(result);
-         ((uint32_t *)data)[(y + 90) * state->width + (x + 30)] = pixel;
+         ((uint32_t *)data)[(y + pos.y) * state->width + (x + pos.x)] = pixel;
       }
    }
 }
@@ -466,27 +438,30 @@ static void draw_frame(struct my_state *state) {
       errExit("mmap");
    }
    fill_bg_no_aa(data, state);
-   uint32_t w, h;
-   png_bytep *imgbuf = NULL;
-
    entry *textl = build_textlist(state->clipdata, state->lstate.enr);
-   if(strcmp(textl[0].mime, "image/png") == 0) {
-      printf("Image\n");
-      imgbuf = get_buf_from_png(textl[0].data, textl[0].size, &w, &h);
-      // munmap(data, size);
-      // return;
-   }
    for (int i = 0; i < TOTAL_RECTS; i++) {
       Colors tbrcolor = (i == state->lstate.currbox) ? BORDER_SELECTED : BORDER;
       draw_rect(rects[i], BORDER_RADIUS, BORDER_WIDTH, true, BOX, tbrcolor, data, state);
       if (i + state->lstate.pagenr < state->lstate.enr) {
-         if (state->lstate.old_pagenr != state->lstate.pagenr)
-            render_text(&state->nntextmap[i], textmap[i], state->face, (char *)textl[i + state->lstate.pagenr].data, textl[i + state->lstate.pagenr].size);
-         draw_text(state->nntextmap[i], textmap[i], state->face, FOREG, BOX, data);
+         if (state->lstate.old_pagenr != state->lstate.pagenr) { // rerender only if page changed
+            memset(&state->map.nntextmap[i], 0, sizeof(Text));
+            memset(&state->map.imgmap[i], 0, sizeof(Image));
+            switch (textl[i + state->lstate.pagenr].mime) {
+               case MIME_TEXT:
+                  render_text(&state->map.nntextmap[i], textmap[i], state->face, (char *)textl[i + state->lstate.pagenr].data, textl[i + state->lstate.pagenr].size);
+                  break;
+               case MIME_IMAGE_PNG:
+                  get_buf_from_png(&state->map.imgmap[i], textl[i + state->lstate.pagenr].data, textl[i + state->lstate.pagenr].size);
+                  break;
+               default:
+                  break;
+            }
+         }
+         draw_text(state->map.nntextmap[i], textmap[i], state->face, FOREG, BOX, data);
+         draw_png_bytep(state->map.imgmap[i], textmap[i].pos, data, state);
       }
    }
    state->lstate.old_pagenr = state->lstate.pagenr;
-   draw_png_bytep(imgbuf, w, h, data, state, BOX);
    munmap(data, size);
 }
 static void xdg_wm_base_ping(void *data, struct xdg_wm_base *xdg_wm_base,

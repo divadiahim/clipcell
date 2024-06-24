@@ -56,19 +56,12 @@ entry *get_entries(void *list, uint32_t head, magic_t *magic, int count) {
       }
       entries[i].data = poz + 2 * sizeof(uint32_t);
       entries[i].size = current->size - 2 * sizeof(uint32_t);
-      entries[i].mime = getMime(magic, poz + 2 * sizeof(uint32_t), current->size - 2 * sizeof(uint32_t));
+      entries[i].mime = getMime(magic, entries[i].data, entries[i].size);
       poz = list + current->next;
       current = (Node *)poz;
    }
    return entries;
 }
-
-// void print_data(void *data, size_t size) {
-//    for (int i = 0; i < size; i++) {
-//       printf("%c", ((char *)data)[i]);
-//    }
-//    fflush(stdout);
-// }
 
 void mimeInit(magic_t *magic) {
    if (!(*magic = magic_open(MAGIC_MIME_TYPE))) {
@@ -84,11 +77,30 @@ void mimeClose(magic_t *magic) {
    return;
 }
 
-const char *getMime(magic_t *magic, void *data, size_t size) {
+const char *getMimeDesc(magic_t *magic, void *data, size_t size) {
    const char *mime = strdup(magic_buffer(*magic, data, size));
    if (mime == NULL) {
-      perror("failed to get mime type");
+      perror("Failed to get mime type");
       return NULL;
    }
    return mime;
+}
+
+mime_t getMime(magic_t *magic, void *data, size_t size) {
+   const char *mime = getMimeDesc(magic, data, size);
+   if (strstr(mime, "text")) {
+      return MIME_TEXT;
+   } else if (strstr(mime, "image/png")) {
+      return MIME_IMAGE_PNG;
+   } else if (strstr(mime, "image")) {
+      return MIME_IMAGE_OTHER;
+   } else if (strstr(mime, "audio")) {
+      return MIME_AUDIO;
+   } else if (strstr(mime, "video")) {
+      return MIME_VIDEO;
+   } else if (strstr(mime, "application")) {
+      return MIME_APPLICATION;
+   } else {
+      return MIME_UNKNOWN;
+   }
 }

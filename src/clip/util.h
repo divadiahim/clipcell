@@ -23,4 +23,5 @@ void precompute_gama();
 int allocate_shm_file(size_t size);
 void *open_shm_file_data(char *name);
 entry *build_textlist(void *data, uint32_t size);
+uint32_t *utf8_to_utf32(const char *utf8_str, uint32_t *out_len);
 #endif

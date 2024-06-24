@@ -1,5 +1,3 @@
-
-
 #include "map.h"
 
 #define errExit(msg)         \

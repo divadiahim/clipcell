@@ -11,6 +11,16 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+typedef enum mime_ {
+   MIME_TEXT,
+   MIME_IMAGE_PNG,
+   MIME_IMAGE_OTHER,
+   MIME_AUDIO,
+   MIME_VIDEO,
+   MIME_APPLICATION,
+   MIME_UNKNOWN
+} mime_t;
+
 typedef struct node_t {
    uint32_t next;
    uint32_t size;
@@ -19,7 +29,7 @@ typedef struct node_t {
 typedef struct entry_t {
    void* data;
    uint32_t size;
-   const char* mime;
+   mime_t mime;
 } entry;
 
 void pushNode(void* list, void* buf, size_t bufsize, uint32_t* head);
@@ -28,4 +38,4 @@ int get_enr(void* data);
 entry* get_entries(void* list, uint32_t head, magic_t* magic, int count);
 void mimeInit(magic_t* magic);
 void mimeClose(magic_t* magic);
-const char* getMime(magic_t* magic, void* data, size_t size);
+mime_t getMime(magic_t* magic, void* data, size_t size);

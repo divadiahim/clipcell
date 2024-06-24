@@ -7,6 +7,7 @@
 #include <freetype/ftglyph.h>
 #include <ft2build.h>
 #include <math.h>
+#include <png.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -120,6 +121,13 @@ struct pointer_event {
    uint32_t axis_source;
 };
 
+/* Image */
+typedef struct image {
+   uint32_t width;
+   uint32_t height;
+   png_bytep* data;
+} Image;
+
 /* Templates */
 static const Rect box_base_rect = {{BOX_PADDING, BOX_START}, {WINDOW_WIDTH - 2 * BOX_PADDING, BOX_HEIGHT}};
 static const Poz box_tr_mat = {0, BOX_HEIGHT + BOX_SPACING};
@@ -132,9 +140,39 @@ extern char exclchars[];
 
 /* Logging */
 static const uint8_t log_level = 0;
-#define LOG(imp,...) {if (log_level <= imp) {fprintf(stderr, __VA_ARGS__);}}
-#define WLCHECK(x,e) {if(!(x)){LOG(10, "Error running " #x " on " __FILE__ ":" FUNNYCSTRING(__LINE__) ": " e "\n"); exit(1);}}
-#define WLCHECKE(x,e) {if(!(x)){LOG(10, "Error running " #x " on " __FILE__ ":" FUNNYCSTRING(__LINE__) ": " e " [%m]\n"); exit(1);}}
-#define FTCHECK(x,e) {uint32_t err=x;if(err){LOG(10, "Freetype error: %s %u:[%s]!\n",e,err,FT_Error_String(err)); exit(1);}}
-#define ERRCHECK(x,e) {if(!(x)){LOG(10, "Error: %s %u:[%s]!\n",e,errno,strerror(errno)); exit(1);}}
+#define LOG(imp, ...)                  \
+   {                                   \
+      if (log_level <= imp) {          \
+         fprintf(stderr, __VA_ARGS__); \
+      }                                \
+   }
+#define WLCHECK(x, e)                                                                         \
+   {                                                                                          \
+      if (!(x)) {                                                                             \
+         LOG(10, "Error running " #x " on " __FILE__ ":" FUNNYCSTRING(__LINE__) ": " e "\n"); \
+         exit(1);                                                                             \
+      }                                                                                       \
+   }
+#define WLCHECKE(x, e)                                                                             \
+   {                                                                                               \
+      if (!(x)) {                                                                                  \
+         LOG(10, "Error running " #x " on " __FILE__ ":" FUNNYCSTRING(__LINE__) ": " e " [%m]\n"); \
+         exit(1);                                                                                  \
+      }                                                                                            \
+   }
+#define FTCHECK(x, e)                                                            \
+   {                                                                             \
+      uint32_t err = x;                                                          \
+      if (err) {                                                                 \
+         LOG(10, "Freetype error: %s %u:[%s]!\n", e, err, FT_Error_String(err)); \
+         exit(1);                                                                \
+      }                                                                          \
+   }
+#define ERRCHECK(x, e)                                               \
+   {                                                                 \
+      if (!(x)) {                                                    \
+         LOG(10, "Error: %s %u:[%s]!\n", e, errno, strerror(errno)); \
+         exit(1);                                                    \
+      }                                                              \
+   }
 #endif

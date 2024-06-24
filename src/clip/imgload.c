@@ -8,9 +8,8 @@ static void read_data_memory(png_structp png_ptr, png_bytep data, png_size_t len
    f->current_pos += length;
 }
 
-png_bytep *get_buf_from_png(void *data, uint32_t size, uint32_t *width, uint32_t *height) {
-   // FILE *fp = fopen(filename, "rb");
-
+void get_buf_from_png(Image *image, void *data, uint32_t size) {
+   memset(image, 0, sizeof(Image));
    png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
    if (!png) abort();
    png_infop info = png_create_info_struct(png);
@@ -22,11 +21,10 @@ png_bytep *get_buf_from_png(void *data, uint32_t size, uint32_t *width, uint32_t
    memory_reader_state.bufsize = size;
    memory_reader_state.current_pos = 0;
    png_set_read_fn(png, &memory_reader_state, read_data_memory);
-   // png_init_io(png, fp);
    png_read_info(png, info);
 
-   *width = png_get_image_width(png, info);
-   *height = png_get_image_height(png, info);
+   image->width = png_get_image_width(png, info);
+   image->height = png_get_image_height(png, info);
    int color_type = png_get_color_type(png, info);
    int bit_depth = png_get_bit_depth(png, info);
 
@@ -58,15 +56,13 @@ png_bytep *get_buf_from_png(void *data, uint32_t size, uint32_t *width, uint32_t
    png_bytep *row_pointers = NULL;
    if (row_pointers) abort();
 
-   row_pointers = (png_bytep *)malloc(sizeof(png_bytep) * *height);
-   for (int y = 0; y < *height; y++) {
+   row_pointers = (png_bytep *)malloc(sizeof(png_bytep) * image->height);
+   for (int y = 0; y < image->height; y++) {
       row_pointers[y] = (png_byte *)malloc(png_get_rowbytes(png, info));
    }
 
    png_read_image(png, row_pointers);
-
-   // fclose(fp);
-
    png_destroy_read_struct(&png, &info, NULL);
-   return row_pointers;
+   image->data = row_pointers;
+   printf("Image loaded\n");
 }
