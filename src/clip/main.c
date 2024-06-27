@@ -255,23 +255,15 @@ void render_text(Text *text, Rect crect, FT_Face face, const char *str, uint32_t
 }
 void draw_text(Text text, Rect crect, FT_Face face, Colors FG, Colors BG, void *data) {
    FT_Glyph image;
-   FT_Vector pen = {0};
+   FT_Vector pen = {.x = crect.pos.x << 6, .y = 0};
    FT_BBox bbox;
-   int o = 0;
-   pen.x = crect.pos.x * 64;
    for (int n = 0; n < text.num_glyphs; n++) {
       FTCHECK(FT_Glyph_Copy(text.glyphs[n].image, &image), "copy failed");
       FT_Glyph_Get_CBox(image, ft_glyph_bbox_pixels, &bbox);
-      if (text.glyphs[n].pos.x >= crect.size.x) {
-         pen.x = ((crect.pos.x)) * 64;
-         o += face->size->metrics.height >> 6;
-      }
+      pen.x = (text.glyphs[n].pos.x >= crect.size.x) ? crect.pos.x << 6 : pen.x;
       FT_Glyph_Transform(image, 0, &pen);
       FTCHECK(FT_Glyph_To_Bitmap(&image, FT_RENDER_MODE_LCD, 0, 1), "rendering failed");
       FT_BitmapGlyph bit = (FT_BitmapGlyph)image;
-      if (o > crect.size.y) {
-         return;
-      }
       int lcd_ww = bit->bitmap.width / 3;
       int k = 0;
       int z = -(bit->bitmap.pitch - bit->bitmap.width);
@@ -286,7 +278,7 @@ void draw_text(Text text, Rect crect, FT_Face face, Colors FG, Colors BG, void *
             k++;
             z += bit->bitmap.pitch - bit->bitmap.width;
          }
-         ((uint32_t *)data)[p + (o + k + crect.pos.y - bit->top + (face->size->metrics.height >> 7)) * WINDOW_WIDTH +
+         ((uint32_t *)data)[p + (text.glyphs[n].pos.y + k + crect.pos.y - bit->top + (face->size->metrics.height >> 7)) * WINDOW_WIDTH +
                             bit->left] = getColorHex(result);
       }
       pen.x += image->advance.x >> 10;
@@ -408,22 +400,46 @@ static void create_shm_pool(struct my_state *state) {
    wl_shm_pool_destroy(pool);
    wl_buffer_add_listener(state->buffer, &wl_buffer_listener, NULL);
 }
-static void draw_png_bytep(Image img, Poz pos, void *data, struct my_state *state) {
+static void draw_png_bytep(Image img, Poz pos, void *data, struct my_state *state, float ratio) {
+   float x_sratio = ratio;
+   float y_sratio = ratio;
+   int npx = 0;
+   int npy = 0;
    if (img.data == NULL)
       return;
+   int ycnt = 0;
    for (int y = 0; y < img.height; y++) {
-      for (int x = 0; x < img.height; x++) {
+      int cnt = 0;
+      int ry = round(y_sratio - npy);
+      for (int x = 0; x < img.width; x++) {
+         int r = round(x_sratio - npx);
+         Color fg = {0};
+         for (int yy = 0; yy < ry; yy++) {
+            for (int xx = 0; xx < r; xx++) {
+               fg.r += img.data[y + yy][(x + xx) * 4 + 0];
+               fg.g += img.data[y + yy][(x + xx) * 4 + 1];
+               fg.b += img.data[y + yy][(x + xx) * 4 + 2];
+               fg.a += img.data[y + yy][(x + xx) * 4 + 3];
+            }
+         }
+         x_sratio += ratio;
+         fg.r /= (r * ry);
+         fg.g /= (r * ry);
+         fg.b /= (r * ry);
+         fg.a /= (r * ry);
+         x += (r - 1);
+         npx += r;
          uint32_t pixel = 0;
          Color bg = getColorFromHex(colors[BOX]);
-         Color fg;
-         fg.r = img.data[y][x * 4 + 0];
-         fg.g = img.data[y][x * 4 + 1];
-         fg.b = img.data[y][x * 4 + 2];
-         fg.a = img.data[y][x * 4 + 3];
          Color result = blend(fg, bg, fg.a / 255.0);
          pixel = getColorHex(result);
-         ((uint32_t *)data)[(y + pos.y) * state->width + (x + pos.x)] = pixel;
+         ((uint32_t *)data)[(ycnt + pos.y) * state->width + (cnt + pos.x)] = pixel;
+         cnt++;
       }
+      y += (ry - 1);
+      y_sratio += ratio;
+      npy += ry;
+      ycnt++;
    }
 }
 
@@ -455,11 +471,12 @@ static void draw_frame(struct my_state *state) {
                   get_buf_from_png(&state->map.imgmap[i], state->map.textl[ai].data, state->map.textl[ai].size);
                   break;
                default:
+                  render_text(&state->map.nntextmap[i], textmap[i], state->face, (char *)state->map.textl[ai].mime_desc, strlen(state->map.textl[ai].mime_desc));
                   break;
             }
          }
          draw_text(state->map.nntextmap[i], textmap[i], state->face, FOREG, BOX, data);
-         draw_png_bytep(state->map.imgmap[i], textmap[i].pos, data, state);
+         draw_png_bytep(state->map.imgmap[i], textmap[i].pos, data, state, calc_scaling_factor(state->map.imgmap[i]));
       }
    }
    state->lstate.old_pagenr = state->lstate.pagenr;

@@ -141,7 +141,6 @@ void *open_shm_file_data(char *name) {
 }
 
 Entry *build_textlist(void *data, uint32_t size) {
-   printf("Size: %d\n", 5);
    fflush(stdout);
    magic_t magic;
    mimeInit(&magic);

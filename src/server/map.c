@@ -56,7 +56,8 @@ Entry *get_entries(void *list, uint32_t head, magic_t *magic, int count) {
       }
       entries[i].data = poz + 2 * sizeof(uint32_t);
       entries[i].size = current->size - 2 * sizeof(uint32_t);
-      entries[i].mime = getMime(magic, entries[i].data, entries[i].size);
+      entries[i].mime_desc = getMimeDesc(magic, entries[i].data, entries[i].size);
+      entries[i].mime = getMime(entries[i].mime_desc);
       poz = list + current->next;
       current = (Node *)poz;
    }
@@ -77,17 +78,17 @@ void mimeClose(magic_t *magic) {
    return;
 }
 
-const char *getMimeDesc(magic_t *magic, void *data, size_t size) {
+const char *getMimeDesc(magic_t *magic, void *data, uint32_t size) {
    const char *mime = strdup(magic_buffer(*magic, data, size));
    if (mime == NULL) {
       perror("Failed to get mime type");
       return NULL;
    }
+   printf("Mime type: %s\n", mime);
    return mime;
 }
 
-mime_t getMime(magic_t *magic, void *data, size_t size) {
-   const char *mime = getMimeDesc(magic, data, size);
+mime_t getMime(const char *mime) {
    if (strstr(mime, "text")) {
       return MIME_TEXT;
    } else if (strstr(mime, "image/png")) {

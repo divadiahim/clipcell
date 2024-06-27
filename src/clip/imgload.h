@@ -8,3 +8,4 @@ typedef struct {
 } MEMORY_READER_STATE;
 
 void get_buf_from_png(Image *image, void *data, uint32_t size);
+float calc_scaling_factor(Image image);
