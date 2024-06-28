@@ -78,13 +78,12 @@ void mimeClose(magic_t *magic) {
    return;
 }
 
-const char *getMimeDesc(magic_t *magic, void *data, uint32_t size) {
-   const char *mime = strdup(magic_buffer(*magic, data, size));
+char *getMimeDesc(magic_t *magic, void *data, uint32_t size) {
+   char *mime = strdup(magic_buffer(*magic, data, size));
    if (mime == NULL) {
       perror("Failed to get mime type");
       return NULL;
    }
-   printf("Mime type: %s\n", mime);
    return mime;
 }
 

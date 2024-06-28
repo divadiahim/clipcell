@@ -26,7 +26,6 @@ struct my_state {
    struct zwlr_layer_shell_v1 *layer_shell;
    struct zwlr_layer_surface_v1 *layer_surface;
    struct wl_shm *shm;
-   struct xdg_wm_base *xdg_wm_base;
    struct xdg_surface *xdg_surface;
    struct xdg_toplevel *xdg_toplevel;
    struct xdg_popup *xdg_popup;
@@ -40,20 +39,17 @@ struct my_state {
    struct xkb_keymap *xkb_keymap;
    struct repeatInfo rinfo;
    struct lstate lstate;
-   struct wl_buffer *buffer;
    struct maps map;
-   void *clipdata;
-   int fd;
-   __timer_t timer;
+   struct wl_buffer *buffer;
+   void *data;
    uint32_t width, height;
    bool closed;
-   FT_Face face;
    Color currColor;
 };
-static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer) {
-   /* Sent by the compositor when it's no longer using this buffer */
-   // wl_buffer_destroy(wl_buffer);
-}
+
+FT_Face face;
+// Why no NULL listeners haaaaaaaaa?
+static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer) {};
 
 static const struct wl_buffer_listener wl_buffer_listener = {
     .release = wl_buffer_release,
@@ -187,7 +183,6 @@ void plotQuadRationalBezierSegAA(int x0, int y0, int x1, int y1,
          } /* y step */
       } while (dy < dx); /* gradient negates -> algorithm fails */
    }
-   // plotLineAA(x0, y0, x2, y2, state, data, 1); /* plot remaining needle to end */
 }
 void compute_string_bbox(FT_BBox *abbox, FT_UInt num_glyphs, TGlyph *glyphs) {
    FT_BBox bbox;
@@ -224,7 +219,7 @@ void compute_string_bbox(FT_BBox *abbox, FT_UInt num_glyphs, TGlyph *glyphs) {
    }
    *abbox = bbox;
 }
-void render_text(Text *text, Rect crect, FT_Face face, const char *str, uint32_t len) {
+void render_text(Text *text, Rect crect, const char *str, uint32_t len) {
    memset(text, 0, sizeof(Text));
    uint32_t utf32_len = 0;
    uint32_t *utf32_str = utf8_to_utf32(str, &utf32_len);
@@ -253,7 +248,7 @@ void render_text(Text *text, Rect crect, FT_Face face, const char *str, uint32_t
    compute_string_bbox(&(text->string_bbox), text->num_glyphs, text->glyphs);
    free(utf32_str);
 }
-void draw_text(Text text, Rect crect, FT_Face face, Colors FG, Colors BG, void *data) {
+void draw_text(Text text, Rect crect, Colors FG, Colors BG, void *data) {
    FT_Glyph image;
    FT_Vector pen = {.x = crect.pos.x << 6, .y = 0};
    FT_BBox bbox;
@@ -266,7 +261,7 @@ void draw_text(Text text, Rect crect, FT_Face face, Colors FG, Colors BG, void *
       FT_BitmapGlyph bit = (FT_BitmapGlyph)image;
       int lcd_ww = bit->bitmap.width / 3;
       int k = 0;
-      int z = -(bit->bitmap.pitch - bit->bitmap.width);
+      int z = 0;
       int rr = bit->bitmap.rows;
       Color fg = getColorFromHex(colorsGamma[FG]);
       Color bg = getColorFromHex(colorsGamma[BG]);
@@ -326,7 +321,6 @@ void drawRoundedRectFilled(int x1, int y1, int x2, int y2, int radius, struct my
          Error -= dx;
       }
       plotLineAA(cx1 - x, cy1 - y, cx2 + x, cy1 - y, state, data, 1);
-      // plotLineAA(cx1 - y, cy1 - x, cx2 + y, cy1 - x, state, data, 1);
       plotLineAA(cx1 - x, cy2 + y + 1, cx2 + x, cy2 + y + 1, state, data, 1);
       plotLineAA(cx1 - y, cy2 + x + 1, cx2 + y, cy2 + x + 1, state, data, 1);
    }
@@ -391,104 +385,86 @@ static void create_shm_pool(struct my_state *state) {
    uint32_t height = state->height;
    uint32_t stride = width * 4;
    uint32_t size = stride * height;
-   state->fd = allocate_shm_file(size);
-   if (state->fd < 0) {
+   int fd = cshmf(size);
+   if (fd < 0) {
       errExit("shm_open");
    }
-   struct wl_shm_pool *pool = wl_shm_create_pool(state->shm, state->fd, size);
+   struct wl_shm_pool *pool = wl_shm_create_pool(state->shm, fd, size);
    state->buffer = wl_shm_pool_create_buffer(pool, 0, width, height, stride, WL_SHM_FORMAT_ARGB8888);
+   state->data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+   if (state->data == MAP_FAILED) {
+      close(fd);
+      errExit("mmap");
+   }
+   close(fd);
    wl_shm_pool_destroy(pool);
    wl_buffer_add_listener(state->buffer, &wl_buffer_listener, NULL);
 }
 static void draw_png_bytep(Image img, Poz pos, void *data, struct my_state *state, float ratio) {
-   float x_sratio = ratio;
-   float y_sratio = ratio;
-   int npx = 0;
-   int npy = 0;
    if (img.data == NULL)
       return;
-   int ycnt = 0;
-   for (int y = 0; y < img.height; y++) {
-      int cnt = 0;
-      int ry = round(y_sratio - npy);
-      for (int x = 0; x < img.width; x++) {
-         int r = round(x_sratio - npx);
+   float x_sratio = ratio;
+   float y_sratio = ratio;
+   for (uint32_t y = 0, ycnt = 0; y < img.height; y++, ycnt++, y_sratio += ratio) {
+      uint16_t ry = round(y_sratio - y);
+      x_sratio = ratio;
+      for (uint32_t x = 0, xcnt = 0; x < img.width; x++, xcnt++, x_sratio += ratio) {
+         uint16_t rx = round(x_sratio - x);
          Color fg = {0};
-         for (int yy = 0; yy < ry; yy++) {
-            for (int xx = 0; xx < r; xx++) {
+         uint16_t yy, xx = 0;
+         for (yy = 0; yy < ry && (y + yy) < img.height; yy++) {
+            for (xx = 0; xx < rx && (x + xx) < img.width; xx++) {
                fg.r += img.data[y + yy][(x + xx) * 4 + 0];
                fg.g += img.data[y + yy][(x + xx) * 4 + 1];
                fg.b += img.data[y + yy][(x + xx) * 4 + 2];
                fg.a += img.data[y + yy][(x + xx) * 4 + 3];
             }
          }
-         x_sratio += ratio;
-         fg.r /= (r * ry);
-         fg.g /= (r * ry);
-         fg.b /= (r * ry);
-         fg.a /= (r * ry);
-         x += (r - 1);
-         npx += r;
+         x += (xx - 1);
+         fg.r /= (yy * xx);
+         fg.g /= (yy * xx);
+         fg.b /= (yy * xx);
+         fg.a /= (yy * xx);
          uint32_t pixel = 0;
          Color bg = getColorFromHex(colors[BOX]);
          Color result = blend(fg, bg, fg.a / 255.0);
          pixel = getColorHex(result);
-         ((uint32_t *)data)[(ycnt + pos.y) * state->width + (cnt + pos.x)] = pixel;
-         cnt++;
+         ((uint32_t *)data)[(ycnt + pos.y) * state->width + (xcnt + pos.x)] = pixel;
       }
       y += (ry - 1);
-      y_sratio += ratio;
-      npy += ry;
-      ycnt++;
    }
 }
 
 static void draw_frame(struct my_state *state) {
-   int width = state->width;
-   int height = state->height;
-   int stride = width * 4;
-   int size = stride * height;
-
-   void *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, state->fd, 0);
-   if (data == MAP_FAILED) {
-      close(state->fd);
-      errExit("mmap");
-   }
-   fill_bg_no_aa(data, state);
+   fill_bg_no_aa(state->data, state);
    for (int i = 0; i < TOTAL_RECTS; i++) {
       Colors tbrcolor = (i == state->lstate.currbox) ? BORDER_SELECTED : BORDER;
-      draw_rect(rects[i], BORDER_RADIUS, BORDER_WIDTH, true, BOX, tbrcolor, data, state);
+      draw_rect(rects[i], BORDER_RADIUS, BORDER_WIDTH, true, BOX, tbrcolor, state->data, state);
       uint32_t ai;
       if ((ai = i + state->lstate.pagenr) < state->lstate.enr) {
          if (state->lstate.old_pagenr != state->lstate.pagenr) {  // rerender only if page changed
+            free_stringlist(state->map.nntextmap[i].glyphs, state->map.nntextmap[i].num_glyphs);
+            free_image(state->map.imgmap[i]);
             memset(&state->map.nntextmap[i], 0, sizeof(Text));
             memset(&state->map.imgmap[i], 0, sizeof(Image));
             switch (state->map.textl[ai].mime) {
                case MIME_TEXT:
-                  render_text(&state->map.nntextmap[i], textmap[i], state->face, (char *)state->map.textl[ai].data, state->map.textl[ai].size);
+                  render_text(&state->map.nntextmap[i], textmap[i], (char *)state->map.textl[ai].data, state->map.textl[ai].size);
                   break;
                case MIME_IMAGE_PNG:
                   get_buf_from_png(&state->map.imgmap[i], state->map.textl[ai].data, state->map.textl[ai].size);
                   break;
                default:
-                  render_text(&state->map.nntextmap[i], textmap[i], state->face, (char *)state->map.textl[ai].mime_desc, strlen(state->map.textl[ai].mime_desc));
+                  render_text(&state->map.nntextmap[i], textmap[i], (char *)state->map.textl[ai].mime_desc, strlen(state->map.textl[ai].mime_desc));
                   break;
             }
          }
-         draw_text(state->map.nntextmap[i], textmap[i], state->face, FOREG, BOX, data);
-         draw_png_bytep(state->map.imgmap[i], textmap[i].pos, data, state, calc_scaling_factor(state->map.imgmap[i]));
+         draw_text(state->map.nntextmap[i], textmap[i], FOREG, BOX, state->data);
+         draw_png_bytep(state->map.imgmap[i], textmap[i].pos, state->data, state, calc_scaling_factor(state->map.imgmap[i]));
       }
    }
    state->lstate.old_pagenr = state->lstate.pagenr;
-   munmap(data, size);
 }
-static void xdg_wm_base_ping(void *data, struct xdg_wm_base *xdg_wm_base,
-                             uint32_t serial) {
-   xdg_wm_base_pong(xdg_wm_base, serial);
-}
-static const struct xdg_wm_base_listener xdg_wm_base_listener = {
-    .ping = xdg_wm_base_ping,
-};
 
 static void wl_seat_name(void *data, struct wl_seat *wl_seat,
                          const char *name) {
@@ -678,14 +654,6 @@ static void wl_keyboard_enter(void *data, struct wl_keyboard *wl_keyboard,
       fprintf(stderr, "utf8: '%s'\n", buf);
    }
 }
-
-void handle_timer(union sigval sv) {
-   struct my_state *state = sv.sival_ptr;
-   if (state->rinfo.repeat_key != -1) {
-      printf("repeat key\n");
-      // Handle the key press event for state->repeat_key
-   }
-}
 void redraw(struct my_state *state, int direction) {
    int rdry = 0;
    int trdry = state->height;
@@ -724,13 +692,12 @@ void handle_key(xkb_keysym_t sym, struct my_state *state) {
             state->lstate.currtext++;
          redraw(state, 0);
          break;
+      case XKB_KEY_Return:
+         output_entry(state->map.textl[state->lstate.currtext]);
+         break;
       default:
          break;
    }
-   // print enr
-   printf("enr: %d\n", state->lstate.enr);
-   printf("currtext: %d\n", state->lstate.currtext);
-   printf("pagenr: %d\n", state->lstate.pagenr);
 }
 static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
                             uint32_t serial, uint32_t time, uint32_t key,
@@ -745,16 +712,6 @@ static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
    if (state == WL_KEYBOARD_KEY_STATE_PRESSED && sym == XKB_KEY_Escape) {
       client_state->closed = true;
       return;
-   }
-   if (state == WL_KEYBOARD_KEY_STATE_PRESSED) {
-      client_state->rinfo.repeat_key = key;
-      struct sigevent sev = {.sigev_notify = SIGEV_THREAD, .sigev_notify_function = handle_timer, .sigev_value.sival_ptr = client_state};
-      timer_create(CLOCK_REALTIME, &sev, &client_state->timer);
-      struct itimerspec its = {.it_value.tv_sec = client_state->rinfo.delay / 1000, .it_value.tv_nsec = (client_state->rinfo.delay % 1000) * 1000000, .it_interval.tv_sec = 0, .it_interval.tv_nsec = 1000000000 / client_state->rinfo.rate};
-      timer_settime(client_state->timer, 0, &its, NULL);
-   } else {
-      client_state->rinfo.repeat_key = -1;
-      timer_delete(client_state->timer);
    }
    xkb_state_key_get_utf8(client_state->xkb_state, keycode, buf, sizeof(buf));
    if (strcmp(action, "press") == 0) {
@@ -778,10 +735,7 @@ static void wl_keyboard_modifiers(void *data, struct wl_keyboard *wl_keyboard,
 
 static void wl_keyboard_repeat_info(void *data, struct wl_keyboard *wl_keyboard,
                                     int32_t rate, int32_t delay) {
-   /* Left as an exercise for the reader */
    struct my_state *client_state = data;
-   // wl
-   //     printf("rate %d delay %d\n", rate, delay);
    client_state->rinfo.rate = rate;
    client_state->rinfo.delay = delay;
 }
@@ -798,7 +752,6 @@ static const struct wl_keyboard_listener wl_keyboard_listener = {
 static void wl_seat_capabilities(void *data, struct wl_seat *wl_seat,
                                  uint32_t capabilities) {
    struct my_state *state = data;
-   // printf("%s %d", "Capabil:", capabilities);
    bool have_pointer = capabilities & WL_SEAT_CAPABILITY_POINTER;
    if (have_pointer && state->wl_pointer == NULL) {
       state->wl_pointer = wl_seat_get_pointer(state->wl_seat);
@@ -828,30 +781,22 @@ static void registry_handle_global(void *data, struct wl_registry *registry,
                                    uint32_t version) {
    struct my_state *state = data;
    if (strcmp(interface, wl_compositor_interface.name) == 0) {
-      state->compositor =
-          wl_registry_bind(registry, name, &wl_compositor_interface, 4);
+      state->compositor = wl_registry_bind(registry, name, &wl_compositor_interface, 4);
    } else if (strcmp(interface, wl_shm_interface.name) == 0) {
       state->shm = wl_registry_bind(registry, name, &wl_shm_interface, 1);
-   } else if (strcmp(interface, xdg_wm_base_interface.name) == 0) {
-      state->xdg_wm_base =
-          wl_registry_bind(registry, name, &xdg_wm_base_interface, 1);
-      xdg_wm_base_add_listener(state->xdg_wm_base, &xdg_wm_base_listener, state);
-   } else if (strcmp(interface, wl_seat_interface.name) == 0) {  //
+   } else if (strcmp(interface, wl_seat_interface.name) == 0) {
       state->wl_seat = wl_registry_bind(registry, name, &wl_seat_interface, 9);
       wl_seat_add_listener(state->wl_seat, &wl_seat_listener, state);
    } else if (strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
       state->layer_shell = wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface, 1);
-      // printf("Got a registry event for %s id %d\n", interface, name);
    }
 }
 static void registry_handle_global_remove(void *data,
                                           struct wl_registry *registry,
-                                          uint32_t name) {
-   printf("Got a registry losing event for %d\n", name);
-}
+                                          uint32_t name) {}
 static void shm_handle_global(void *data, struct wl_shm *wl_shm,
                               uint32_t format) {
-   printf("The supported pixel formats are 0x%08x\n", format);
+   fprintf(stderr, "The supported pixel formats are 0x%08x\n", format);
 }
 static const struct wl_registry_listener registry_listener = {
     .global = registry_handle_global,
@@ -859,7 +804,6 @@ static const struct wl_registry_listener registry_listener = {
 };
 static const struct wl_shm_listener shm_listener = {
     .format = shm_handle_global,
-    // .global_remove = shm_handle_global_remove,
 };
 static void layer_surface_configure(void *data,
                                     struct zwlr_layer_surface_v1 *surface,
@@ -868,7 +812,6 @@ static void layer_surface_configure(void *data,
    zwlr_layer_surface_v1_ack_configure(surface, serial);
    state->width = width;
    state->height = height;
-   create_shm_pool(state);
    draw_frame(state);
    wl_surface_attach(state->surface, state->buffer, 0, 0);
    wl_surface_damage(state->surface, 0, 0, width, height);
@@ -882,7 +825,6 @@ static void layer_surface_configure_temp(void *data,
    state->width = width;
    state->height = height;
    create_shm_pool(state);
-   draw_frame(state);
    wl_surface_attach(state->surface, state->buffer, 0, 0);
    wl_surface_damage(state->surface, 0, 0, width, height);
    wl_surface_commit(state->surface);
@@ -904,19 +846,17 @@ void setup(struct my_state *state) {
    FTCHECK(FT_Init_FreeType(&library), "initializing freetype");
    FTCHECK(FT_New_Face(library,
                        "/usr/share/fonts/TTF/JetBrainsMono-Regular_kern.ttf", 0,
-                       &state->face),
+                       &face),
            "loading font");
-   FTCHECK(FT_Set_Char_Size(state->face, TEXT_SIZE * 64, 0, DPI, DPI), "setting font size");
+   FTCHECK(FT_Set_Char_Size(face, TEXT_SIZE * 64, 0, DPI, DPI), "setting font size");
    precompute_gama();
    compute_rects(rects, box_base_rect, box_tr_mat);
    compute_rects(textmap, text_base_rect, text_tr_mat);
-   state->clipdata = open_shm_file_data("OS");
-   if (state->clipdata == NULL) {
-      errExit("open_shm_file_data");
-   }
-   state->lstate.enr = get_enr(state->clipdata);
+   void *clipdata = open_shm_file_data("OS");
+   ERRCHECK(clipdata, "open_shm_file_data");
+   state->lstate.enr = get_enr(clipdata);
    state->lstate.old_pagenr = UINT16_MAX;
-   state->map.textl = build_textlist(state->clipdata, state->lstate.enr);
+   state->map.textl = build_textlist(clipdata, state->lstate.enr);
 }
 void zwlr_layer_surface_v1_init(struct my_state *state, const struct zwlr_layer_surface_v1_listener *layer_surface_listener_vlt) {
    state->surface = wl_compositor_create_surface(state->compositor);
@@ -925,6 +865,25 @@ void zwlr_layer_surface_v1_init(struct my_state *state, const struct zwlr_layer_
    zwlr_layer_surface_v1_set_anchor(state->layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP);
    zwlr_layer_surface_v1_set_size(state->layer_surface, WINDOW_WIDTH, WINDOW_HEIGHT);
    zwlr_layer_surface_v1_set_keyboard_interactivity(state->layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
+}
+void clean(struct my_state *state) {
+   free_entries(state->map.textl, state->lstate.enr);
+   free_textlist(state->map.nntextmap);
+   free_imglist(state->map.imgmap);
+   FT_Done_Face(face);
+   FT_Done_FreeType(library);
+   xkb_state_unref(state->xkb_state);
+   xkb_keymap_unref(state->xkb_keymap);
+   xkb_context_unref(state->xkb_context);
+   wl_compositor_destroy(state->compositor);
+   wl_shm_destroy(state->shm);
+   wl_seat_destroy(state->wl_seat);
+   wl_keyboard_destroy(state->wl_keyboard);
+   wl_pointer_destroy(state->wl_pointer);
+   zwlr_layer_surface_v1_destroy(state->layer_surface);
+   zwlr_layer_shell_v1_destroy(state->layer_shell);
+   wl_surface_destroy(state->surface);
+   wl_buffer_destroy(state->buffer);
 }
 int main(int argc, char const *argv[]) {
    struct my_state state = {0};
@@ -949,11 +908,9 @@ int main(int argc, char const *argv[]) {
    zwlr_layer_surface_v1_init(&state, &layer_surface_listener);
    zwlr_layer_surface_v1_set_margin(state.layer_surface, pointer_init.y, -pointer_init.x, 0, 0);
    wl_surface_commit(state.surface);
-   while (wl_display_dispatch(display) != -1) {
-      if (state.closed) {
-         break;
-      }
-   }
+   while (wl_display_dispatch(display) != -1 && !state.closed);
+   clean(&state);
+   wl_registry_destroy(registry);
    wl_display_disconnect(display);
    return 0;
 }

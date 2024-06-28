@@ -64,36 +64,12 @@ void get_buf_from_png(Image *image, void *data, uint32_t size) {
    png_read_image(png, row_pointers);
    png_destroy_read_struct(&png, &info, NULL);
    image->data = row_pointers;
-   printf("Image loaded\n");
 }
 
 float calc_scaling_factor(Image image) {
    float scale_x = (float)image.width / IMAGE_WIDTH;
    float scale_y = (float)image.height / IMAGE_HEIGHT;
-   printf("Image height: %d\n", image.height);
+   if(scale_x < 1 && scale_y < 1)
+      return 1.0f;
    return scale_x > scale_y ? scale_x : scale_y;
-}
-
-// function that scales an image by a fractional factor
-void scale_image(Image *image, float factor) {
-   uint32_t new_width = image->width / factor;
-   uint32_t new_height = image->height / factor;
-   png_bytep *new_data = (png_bytep *)malloc(sizeof(png_bytep) * new_height);
-   for (int y = 0; y < new_height; y++) {
-      new_data[y] = (png_byte *)malloc(new_width * 4);
-      for (int x = 0; x < new_width; x++) {
-         new_data[y][x * 4] = image->data[(int)(y * factor)][(int)(x * factor) * 4];
-         new_data[y][x * 4 + 1] = image->data[(int)(y * factor)][(int)(x * factor) * 4 + 1];
-         new_data[y][x * 4 + 2] = image->data[(int)(y * factor)][(int)(x * factor) * 4 + 2];
-         new_data[y][x * 4 + 3] = image->data[(int)(y * factor)][(int)(x * factor) * 4 + 3];
-      }
-   }
-   for (int y = 0; y < image->height; y++) {
-      free(image->data[y]);
-   }
-   free(image->data);
-   image->data = new_data;
-   image->width = new_width;
-   image->height = new_height;
-   printf("Image scaled\n");
 }

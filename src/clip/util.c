@@ -79,7 +79,6 @@ void compute_rects(Rect rects[TOTAL_RECTS], Rect brect, Poz tmat) {
    for (int i = 1; i < TOTAL_RECTS; i++) {
       (rects[i]).pos = translate((rects[i - 1]).pos, tmat);
       (rects[i]).size = brect.size;
-      printf("Rect %d: %d %d %d %d\n", i, (rects[i]).pos.x, (rects[i]).pos.y, (rects[i]).size.x, (rects[i]).size.y);
    }
 }
 
@@ -94,32 +93,24 @@ static void randname(char *buf) {
    }
 }
 
-int create_shm_file() {
-   int retries = 100;
+int32_t cshmf(uint32_t size) {
+   char fnm[] = "clipcell-000000";
+
+   int32_t fd = 0;
+   uint32_t retries = 100;
    do {
-      char name[] = "/wl_shm-XXXXXX";
-      randname(name + sizeof(name) - 7);
-      --retries;
-      int fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
+      randname(fnm);
+      fd = shm_open(fnm, O_RDWR | O_CREAT | O_EXCL, 0600);
       if (fd >= 0) {
-         shm_unlink(name);
-         return fd;
+         break;
       }
-   } while (retries > 0 && errno == EEXIST);
-   return -1;
-}
-int allocate_shm_file(size_t size) {
-   int fd = create_shm_file();
-   if (fd < 0)
-      return -1;
-   int ret;
-   do {
-      ret = ftruncate(fd, size);
-   } while (ret < 0 && errno == EINTR);
-   if (ret < 0) {
-      close(fd);
-      return -1;
+   } while (--retries);
+   if (retries == 0) {
+      LOG(0, "Could not create the shm file! [%m]\n");
+      exit(1);
    }
+   ERRCHECK(!shm_unlink(fnm), "Could not unlink the shm file!");
+   ERRCHECK(!ftruncate(fd, size), "Could not truncate the shm file!");
    return fd;
 }
 
@@ -137,9 +128,13 @@ void *open_shm_file_data(char *name) {
       close(fd);
       return NULL;
    }
+   close(fd);
    return data;
 }
 
+void close_shm_file_data(void *data, size_t size) {
+   munmap(data, size);
+}
 Entry *build_textlist(void *data, uint32_t size) {
    fflush(stdout);
    magic_t magic;
@@ -183,4 +178,44 @@ uint32_t *utf8_to_utf32(const char *utf8_str, uint32_t *out_len) {
    }
    *out_len = len;
    return utf32_str;
+}
+
+void output_entry(Entry entry) {
+   for (int i = 0; i < entry.size; i++) {
+      printf("%c", ((char *)entry.data)[i]);
+   }
+}
+
+void free_entries(Entry *entries, int count) {
+   for (int i = 0; i < count; i++) {
+      free(entries[i].mime_desc);
+   }
+   free(entries);
+}
+
+void free_textlist(Text nntextmap[TOTAL_RECTS]) {
+   for (int i = 0; i < TOTAL_RECTS; i++) {
+      free_stringlist(nntextmap[i].glyphs, nntextmap[i].num_glyphs);
+   }
+}
+
+void free_stringlist(TGlyph *glyphs, int count) {
+   for (int i = 0; i < count; i++) {
+      if (glyphs[i].image != NULL)
+         FT_Done_Glyph(glyphs[i].image);
+   }
+}
+
+void free_imglist(Image imgmap[TOTAL_RECTS]) {
+   for (int i = 0; i < TOTAL_RECTS; i++) {
+      free_image(imgmap[i]);
+   }
+}
+void free_image(Image image) {
+   if(image.data == NULL)
+      return;
+   for (int i = 0; i < image.height; i++) {
+      free(image.data[i]);
+   }
+   free(image.data);
 }

@@ -6,7 +6,7 @@
 #define errExit(msg)        \
    do {                     \
       perror(msg);          \
-      printf("%d ", errno); \
+      fprintf(stderr, "%d ", errno); \
       exit(EXIT_FAILURE);   \
    } while (0)
 
@@ -20,8 +20,14 @@ uint32_t getColorHex(Color result);
 Color blend(Color fg, Color bg, float alpha);
 Color blendLCD(Color fg, Color bg, FT_BitmapGlyph slot, size_t z);
 void precompute_gama();
-int allocate_shm_file(size_t size);
+int32_t cshmf(uint32_t size);
 void *open_shm_file_data(char *name);
 Entry *build_textlist(void *data, uint32_t size);
 uint32_t *utf8_to_utf32(const char *utf8_str, uint32_t *out_len);
+void output_entry(Entry entry);
+void free_entries(Entry *entries, int count);
+void free_textlist(Text nntextmap[TOTAL_RECTS]);
+void free_stringlist(TGlyph *glyphs, int count);
+void free_imglist(Image imgmap[TOTAL_RECTS]);
+void free_image(Image image);
 #endif

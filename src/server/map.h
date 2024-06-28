@@ -30,7 +30,7 @@ typedef struct entry_t {
    void* data;
    uint32_t size;
    mime_t mime;
-   const char *mime_desc;
+   char *mime_desc;
 } Entry;
 
 void pushNode(void* list, void* buf, size_t bufsize, uint32_t* head);
@@ -39,5 +39,5 @@ int get_enr(void* data);
 Entry* get_entries(void* list, uint32_t head, magic_t* magic, int count);
 void mimeInit(magic_t* magic);
 void mimeClose(magic_t* magic);
-const char* getMimeDesc(magic_t* magic, void* data, uint32_t size);
+char* getMimeDesc(magic_t* magic, void* data, uint32_t size);
 mime_t getMime(const char *mime);
