@@ -1,5 +1,4 @@
-#ifndef TYPES_H
-#define TYPES_H
+#pragma once
 
 #include <assert.h>
 #include <errno.h>
@@ -140,39 +139,6 @@ extern char exclchars[];
 
 /* Logging */
 static const uint8_t log_level = 0;
-#define LOG(imp, ...)                  \
-   {                                   \
-      if (log_level <= imp) {          \
-         fprintf(stderr, __VA_ARGS__); \
-      }                                \
-   }
-#define WLCHECK(x, e)                                                                         \
-   {                                                                                          \
-      if (!(x)) {                                                                             \
-         LOG(10, "Error running " #x " on " __FILE__ ":" FUNNYCSTRING(__LINE__) ": " e "\n"); \
-         exit(1);                                                                             \
-      }                                                                                       \
-   }
-#define WLCHECKE(x, e)                                                                             \
-   {                                                                                               \
-      if (!(x)) {                                                                                  \
-         LOG(10, "Error running " #x " on " __FILE__ ":" FUNNYCSTRING(__LINE__) ": " e " [%m]\n"); \
-         exit(1);                                                                                  \
-      }                                                                                            \
-   }
-#define FTCHECK(x, e)                                                            \
-   {                                                                             \
-      uint32_t err = x;                                                          \
-      if (err) {                                                                 \
-         LOG(10, "Freetype error: %s %u:[%s]!\n", e, err, FT_Error_String(err)); \
-         exit(1);                                                                \
-      }                                                                          \
-   }
-#define ERRCHECK(x, e)                                               \
-   {                                                                 \
-      if (!(x)) {                                                    \
-         LOG(10, "Error: %s %u:[%s]!\n", e, errno, strerror(errno)); \
-         exit(1);                                                    \
-      }                                                              \
-   }
-#endif
+#define LOG(imp, ...){if (log_level <= imp) {fprintf(stderr, __VA_ARGS__);}}
+#define FTCHECK(x, e){uint32_t err = x; if (err) {LOG(10, "Freetype error: %s %u:[%s]!\n", e, err, FT_Error_String(err)); exit(1);}}
+#define ERRCHECK(x, e){if (!(x)) {LOG(10, "Error: %s %u:[%s]!\n", e, errno, strerror(errno)); exit(1);}}

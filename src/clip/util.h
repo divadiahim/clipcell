@@ -1,5 +1,4 @@
-#ifndef UTIL_H
-#define UTIL_H
+#pragma once
 #include "../server/map.h"
 #include "types.h"
 
@@ -30,4 +29,3 @@ void free_textlist(Text nntextmap[TOTAL_RECTS]);
 void free_stringlist(TGlyph *glyphs, int count);
 void free_imglist(Image imgmap[TOTAL_RECTS]);
 void free_image(Image image);
-#endif

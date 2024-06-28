@@ -1,6 +1,4 @@
-// --colors in hex rrggbb
-#ifndef CONFIG_H
-#define CONFIG_H
+#pragma once
 
 #define TEXT_SIZE 7
 #define SCREEN_WIDTH 1920
@@ -18,7 +16,7 @@
 #define BORDER_WIDTH 5
 #define BORDER_RADIUS 10
 #define IMAGE_HEIGHT (BOX_HEIGHT - 2 * BORDER_WIDTH)
-#define IMAGE_WIDTH (WINDOW_WIDTH - 2 * BOX_PADDING - 2 * BORDER_WIDTH)
+#define IMAGE_WIDTH (WINDOW_WIDTH - 2 * BOX_PADDING - 2 * BORDER_WIDTH - TEXT_PADDING)
 
 #define GAMMA 1.8f
 #define TOTAL_COLORS 5
@@ -27,5 +25,3 @@
 
 #define DIAGONAL sqrt(SCREEN_HEIGHT * SCREEN_HEIGHT + SCREEN_WIDTH * SCREEN_WIDTH)
 #define DPI (DIAGONAL / SCREEN_DIAG)
-
-#endif

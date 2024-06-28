@@ -290,7 +290,7 @@ void fillRect(int x, int y, int width, int height, struct my_state *state,
       }
    }
 }
-void drawRoundedRectFilled(int x1, int y1, int x2, int y2, int radius, struct my_state *state, void *data) {  // draw a rounded rectangle with  Bresenham's algorithm and fill it
+void drawRoundedRectFilled(int x1, int y1, int x2, int y2, int radius, struct my_state *state, void *data) {
    int x, y;
    if (x1 > x2) {
       x = x1;
