@@ -71,8 +71,8 @@ typedef enum Colors {
 
 static const uint64_t colors[TOTAL_COLORS] = {
     [BACKG] = 0xFF0e0e10,
-    [FOREG] = 0xffc6c5cf,
-    [BORDER] = 0x0Fc2c5dc,
+    [FOREG] = 0xFFc6c5cf,
+    [BORDER] = 0xFF2B2B31,
     [BORDER_SELECTED] = 0xFFc2c5dc,
     [BOX] = 0xFF1f1f23,
 };
@@ -132,7 +132,7 @@ static const Rect box_base_rect = {{BOX_PADDING, BOX_START}, {WINDOW_WIDTH - 2 *
 static const Poz box_tr_mat = {0, BOX_HEIGHT + BOX_SPACING};
 extern Rect rects[TOTAL_RECTS];
 
-static const Rect text_base_rect = {{BOX_PADDING + BORDER_WIDTH + TEXT_PADDING, BOX_START + BORDER_WIDTH}, {WINDOW_WIDTH - 2 * BOX_PADDING - BORDER_WIDTH - TEXT_PADDING, BOX_HEIGHT - 2 * BORDER_WIDTH}};
+static const Rect text_base_rect = {{BOX_PADDING + BORDER_WIDTH + TEXT_PADDING, BOX_START + BORDER_WIDTH + TEXT_PADDING}, {WINDOW_WIDTH - 2 * BOX_PADDING - BORDER_WIDTH - TEXT_PADDING, BOX_HEIGHT - 2 * BORDER_WIDTH - TEXT_PADDING}};
 static const Poz text_tr_mat = {0, BOX_HEIGHT + BOX_SPACING};
 extern Rect textmap[TOTAL_RECTS];
 extern const char exclchars[];

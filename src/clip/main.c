@@ -263,7 +263,7 @@ void draw_text(Text text, Rect crect, Colors FG, Colors BG, void *data) {
       FT_BitmapGlyph bit = (FT_BitmapGlyph)image;
       int lcd_ww = bit->bitmap.width / 3;
       int k = 0;
-      int z = 0;
+      int z = -(bit->bitmap.pitch - bit->bitmap.width);
       int rr = bit->bitmap.rows;
       Color fg = getColorFromHex(colorsGamma[FG]);
       Color bg = getColorFromHex(colorsGamma[BG]);
@@ -278,7 +278,7 @@ void draw_text(Text text, Rect crect, Colors FG, Colors BG, void *data) {
          ((uint32_t *)data)[p + (text.glyphs[n].pos.y + k + crect.pos.y - bit->top + (face->size->metrics.height >> 7)) * WINDOW_WIDTH +
                             bit->left] = getColorHex(result);
       }
-      pen.x += image->advance.x >> 10;
+      pen.x += (image->advance.x >> 10);
       pen.y += image->advance.y >> 10;
       FT_Done_Glyph(image);
    }
@@ -350,10 +350,10 @@ void draw_rect(Rect rect, uint16_t radius, uint16_t thickness, bool filled, Colo
       drawRoundedRectFilled(x0 + 1, y0 - 1, x1 - 1, y1 - 1, radius - radius / 6, state, data);
    }
    state->currColor = getColorFromHex(colorsGamma[border]);
-   plotLineAA(x0 + radius, y0, x1 - radius, y0, state, data, thickness);
-   plotLineAA(x0 + radius, y1, x1 - radius, y1, state, data, thickness);
-   plotLineAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y1 - radius, state, data, thickness);
-   plotLineAA(x1, y0 + radius - f_thickness, x1, y1 - radius, state, data, thickness);
+   plotLineAA(x0 + radius + 1, y0, x1 - radius - 1, y0, state, data, thickness);
+   plotLineAA(x0 + radius + 1, y1, x1 - radius - 1, y1, state, data, thickness);
+   plotLineAA(x0 + f_thickness, y0 + radius - f_thickness + 1, x0 + f_thickness, y1 - radius - 1, state, data, thickness);
+   plotLineAA(x1, y0 + radius - f_thickness + 1, x1, y1 - radius - 1, state, data, thickness);
    if (radius > 0) {
       plotQuadRationalBezierSegAA(x0, y0 + radius - f_thickness, x0, y0 - f_thickness, x0 + radius, y0 - f_thickness, 1, 1, state, data);
       plotQuadRationalBezierSegAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y0, x0 + radius, y0, 1, 1, state, data);
@@ -544,7 +544,6 @@ static void wl_pointer_axis_discrete(void *data, struct wl_pointer *wl_pointer,
 PointerC pointer_init = {0};
 static void wl_pointer_frame(void *data, struct wl_pointer *wl_pointer) {
    struct my_state *client_state = data;
-   // static bool first_frame = true;
    struct pointer_event *event = &client_state->pointer_event;
    fprintf(stderr, "pointer frame @ %d: ", event->time);
 
