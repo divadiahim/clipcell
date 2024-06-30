@@ -18,7 +18,7 @@ void pushNode(void *list, void *buf, size_t bufsize, uint32_t *head) {
    return;
 }
 
-int get_enr(void *data) {
+uint16_t get_enr(void *data) {
    void *list = data + sizeof(uint32_t);
    uint32_t head = *(uint32_t *)data;
    int count = 0;
@@ -40,18 +40,46 @@ int get_enr(void *data) {
    return count;
 }
 
-// void removeNode(void *list, uint32_t *index) {
-//    void *list = list + sizeof(uint32_t);
-//    void *poz = list + *index;
-//    memmove(poz, poz + ((Node *)poz)->size, ((Node *)poz)->size);
-//    *index = ((Node *)poz)->next;
-// }
+uint32_t removeNode(void *data, uint32_t index) {
+   void *list = data + sizeof(uint32_t);
+   uint32_t *head = (uint32_t *)data;
+   Node *curr_poz = list + index;
+   uint32_t temp_size = curr_poz->size;
+   void *poz = list + *head;
+   uint32_t temp_final_size = ((Node *)poz)->size;
+   Node *current = (Node *)poz;
+   uint8_t exitcount;
+   exitcount = head == 0 ? 1 : 2;
+   do {
+      uint32_t temp_next = current->next;
+      if (current->next == 0) {
+         exitcount--;
+      }
+      if (current->next != index && index != *head) {
+         current->next -= temp_size;
+      } else if (index != *head) {
+         current->next = curr_poz->next;
+         for (int i = 0; i < *head - index + temp_final_size; i++) {
+            ((char *)curr_poz)[i] = ((char *)curr_poz)[i + temp_size];
+         }
+         *head -= temp_size;
+         break;
+      } else {
+         *head = curr_poz->next;
+         break;
+      }
+      poz = list + temp_next;
+      current = (Node *)poz;
+   } while (exitcount);
+   return temp_size;
+}
 
-Entry *get_entries(void *list, uint32_t head, magic_t *magic, int count) {
-   fflush(stderr);
+Entry *get_entries(void *data, magic_t *magic, int count) {
    if (count == 0) {
       return NULL;
    }
+   void *list = data + sizeof(uint32_t);
+   uint32_t head = *(uint32_t *)data;
    Entry *entries = malloc(count * sizeof(Entry));
    void *poz = list + head;
    Node *current = (Node *)poz;
@@ -63,8 +91,9 @@ Entry *get_entries(void *list, uint32_t head, magic_t *magic, int count) {
       }
       entries[i].data = poz + 2 * sizeof(uint32_t);
       entries[i].size = current->size - 2 * sizeof(uint32_t);
-      entries[i].mime_desc = getMimeDesc(magic, entries[i].data, entries[i].size);
+      entries[i].mime_desc = getMimeDesc(magic, entries[i].data, entries[i].size);  // saving also the mime char for debugging unknown mime types
       entries[i].mime = getMime(entries[i].mime_desc);
+      entries[i].poz = poz - list;
       poz = list + current->next;
       current = (Node *)poz;
    }
@@ -80,11 +109,6 @@ void mimeInit(magic_t *magic) {
    }
 }
 
-void mimeClose(magic_t *magic) {
-   magic_close(*magic);
-   return;
-}
-
 char *getMimeDesc(magic_t *magic, void *data, uint32_t size) {
    char *mime = strdup(magic_buffer(*magic, data, size));
    if (mime == NULL) {
@@ -95,7 +119,7 @@ char *getMimeDesc(magic_t *magic, void *data, uint32_t size) {
 }
 
 mime_t getMime(const char *mime) {
-   if (strstr(mime, "text")) {
+   if (strstr(mime, "text") || strstr(mime, "octet-stream")) {
       return MIME_TEXT;
    } else if (strstr(mime, "image/png")) {
       return MIME_IMAGE_PNG;

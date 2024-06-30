@@ -42,6 +42,8 @@ struct my_state {
    struct maps map;
    struct wl_buffer *buffer;
    void *data;
+   void *clipdata;
+   int cfd;
    uint32_t width, height;
    bool closed;
    Color currColor;
@@ -694,6 +696,7 @@ void handle_key(xkb_keysym_t sym, struct my_state *state) {
          break;
       case XKB_KEY_Return:
          output_entry(state->map.textl[state->lstate.currtext]);
+         truncate_shm_file(state->cfd, state->clipdata, removeNode(state->clipdata, state->map.textl[state->lstate.currtext].poz));
          state->closed = true;
          break;
       default:
@@ -854,11 +857,11 @@ void setup(struct my_state *state) {
    memset(state->map.nntextmap, 0, sizeof(Text) * TOTAL_RECTS);
    compute_rects(rects, box_base_rect, box_tr_mat);
    compute_rects(textmap, text_base_rect, text_tr_mat);
-   void *clipdata = open_shm_file_data("OS");
-   ERRCHECK(clipdata, "open_shm_file_data");
-   state->lstate.enr = get_enr(clipdata);
+   state->clipdata = open_shm_file_data("OS", &state->cfd);
+   ERRCHECK(state->clipdata, "open_shm_file_data");
+   state->lstate.enr = get_enr(state->clipdata);
    state->lstate.old_pagenr = UINT16_MAX;
-   state->map.textl = build_textlist(clipdata, state->lstate.enr);
+   state->map.textl = build_textlist(state->clipdata, state->lstate.enr);
 }
 void zwlr_layer_surface_v1_init(struct my_state *state, const struct zwlr_layer_surface_v1_listener *layer_surface_listener_vlt) {
    state->surface = wl_compositor_create_surface(state->compositor);

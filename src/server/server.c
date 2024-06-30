@@ -16,6 +16,7 @@ void client(void *data, void *infub, size_t size) {
    } else {
       pushNode(dlist, infub, size, (uint32_t *)data);
    }
+   mimeClose(&magic);
 }
 
 void *read_all(int fd, uint32_t *nread) {
@@ -39,7 +40,6 @@ int main(int argc, char *argv[]) {
    int fd;
    struct stat param;
    char *name = "OS";
-   char *path = "/dev/shm/OS";
    void *buf = NULL;
    void *data = NULL;
    uint64_t shmbufsize = 0;
@@ -74,7 +74,7 @@ int main(int argc, char *argv[]) {
       ftruncate(fd, sizeof(uint32_t));
    }
 
-   stat(path, &param);
+   fstat(fd, &param);
    shmbufsize = param.st_size + bufsize + 2 * sizeof(uint32_t);
    if (ftruncate(fd, shmbufsize) == -1) {
       errExit("ftruncate");

@@ -7,7 +7,7 @@ Rect rects[TOTAL_RECTS];
 Rect textmap[TOTAL_RECTS];
 FT_Library library;
 uint64_t colorsGamma[TOTAL_COLORS] = {0};
-char exclchars[] = {'\n', '\t', '\r', '\v', '\f'};
+const char exclchars[] = {'\n', '\t', '\r', '\v', '\f', '\0'};
 
 int max(int a, int b) { return a > b ? a : b; }
 int mod(int a, int b) { return (a % b + b) % b; }
@@ -114,34 +114,37 @@ int32_t cshmf(uint32_t size) {
    return fd;
 }
 
-void *open_shm_file_data(char *name) {
-   int fd = shm_open(name, O_RDWR, 0600);
-   if (fd < 0)
+void *open_shm_file_data(char *name, int *tfd) {
+   *tfd = shm_open(name, O_RDWR, 0600);
+   if (*tfd < 0)
       return NULL;
+   struct stat st;
+   if (fstat(*tfd, &st) < 0) {
+      close(*tfd);
+      return NULL;
+   }
+   void *data = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, *tfd, 0);
+   if (data == MAP_FAILED) {
+      close(*tfd);
+      return NULL;
+   }
+   return data;
+}
+void truncate_shm_file(int fd, void *clipdata, uint32_t size) {
    struct stat st;
    if (fstat(fd, &st) < 0) {
       close(fd);
-      return NULL;
+      return;
    }
-   void *data = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
-   if (data == MAP_FAILED) {
-      close(fd);
-      return NULL;
-   }
-   close(fd);
-   return data;
-}
-
-void close_shm_file_data(void *data, size_t size) {
-   munmap(data, size);
+   munmap(clipdata, st.st_size);
+   ERRCHECK(!ftruncate(fd, st.st_size - size), "Could not truncate the shm file!");
 }
 Entry *build_textlist(void *data, uint32_t size) {
    fflush(stdout);
    magic_t magic;
    mimeInit(&magic);
-   void *dlist = data + sizeof(uint32_t);
-   Entry *entries = get_entries(dlist, *(uint32_t *)data, &magic, size);
-   mimeClose(&magic);
+   Entry *entries = get_entries(data, &magic, size);
+   magic_close(magic);
    return entries;
 }
 
@@ -151,6 +154,7 @@ uint32_t *utf8_to_utf32(const char *utf8_str, uint32_t *out_len, uint32_t in_len
    while (*utf8_str && len < in_len) {
       if ((*utf8_str == ' ' && *(utf8_str + 1) == ' ') || strchr(exclchars, *utf8_str)) {
          utf8_str++;
+         in_len--;
          continue;
       }
       uint32_t codepoint = 0;
@@ -158,7 +162,6 @@ uint32_t *utf8_to_utf32(const char *utf8_str, uint32_t *out_len, uint32_t in_len
       if (c <= 0x7F) {
          codepoint = c;
       } else if (c <= 0xBF) {
-         // Invalid byte, ignore it
          continue;
       } else if (c <= 0xDF) {
          codepoint = (c & 0x1F) << 6;
@@ -212,7 +215,7 @@ void free_imglist(Image imgmap[TOTAL_RECTS]) {
    }
 }
 void free_image(Image image) {
-   if(image.data == NULL)
+   if (image.data == NULL)
       return;
    for (int i = 0; i < image.height; i++) {
       free(image.data[i]);
