@@ -37,8 +37,7 @@ typedef struct entry_t {
 void pushNode(void* list, void* buf, size_t bufsize, uint32_t* head);
 void newNode(void* list, void* buf, size_t bufsize);
 uint32_t removeNode(void *list, uint32_t index);
-uint16_t get_enr(void* data);
-Entry* get_entries(void* data, magic_t* magic, int count);
+Entry* get_entries(void* data, magic_t* magic, uint16_t *enr);
 void mimeInit(magic_t* magic);
 char* getMimeDesc(magic_t* magic, void* data, uint32_t size);
 mime_t getMime(const char *mime);

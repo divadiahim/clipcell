@@ -139,11 +139,11 @@ void truncate_shm_file(int fd, void *clipdata, uint32_t size) {
    munmap(clipdata, st.st_size);
    ERRCHECK(!ftruncate(fd, st.st_size - size), "Could not truncate the shm file!");
 }
-Entry *build_textlist(void *data, uint32_t size) {
+Entry *build_textlist(void *data, uint16_t *enr) {
    fflush(stdout);
    magic_t magic;
    mimeInit(&magic);
-   Entry *entries = get_entries(data, &magic, size);
+   Entry *entries = get_entries(data, &magic, enr);
    magic_close(magic);
    return entries;
 }

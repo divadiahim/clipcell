@@ -18,38 +18,14 @@ void pushNode(void *list, void *buf, size_t bufsize, uint32_t *head) {
    return;
 }
 
-uint16_t get_enr(void *data) {
-   void *list = data + sizeof(uint32_t);
-   uint32_t head = *(uint32_t *)data;
-   int count = 0;
-   if (list == NULL) {
-      return 0;
-   }
-   void *poz = list + head;
-   Node *current = (Node *)poz;
-   uint8_t exitcount;
-   exitcount = head == 0 ? 1 : 2;
-   do {
-      if (current->next == 0) {
-         exitcount--;
-      }
-      count++;
-      poz = list + current->next;
-      current = (Node *)poz;
-   } while (exitcount);
-   return count;
-}
-
 uint32_t removeNode(void *data, uint32_t index) {
    void *list = data + sizeof(uint32_t);
    uint32_t *head = (uint32_t *)data;
    Node *curr_poz = list + index;
+   Node *current = list + *head;
    uint32_t temp_size = curr_poz->size;
-   void *poz = list + *head;
-   uint32_t temp_final_size = ((Node *)poz)->size;
-   Node *current = (Node *)poz;
-   uint8_t exitcount;
-   exitcount = head == 0 ? 1 : 2;
+   uint32_t temp_final_size = current->size;
+   uint8_t exitcount = head == 0 ? 1 : 2;
    do {
       uint32_t temp_next = current->next;
       if (current->next == 0) {
@@ -68,35 +44,37 @@ uint32_t removeNode(void *data, uint32_t index) {
          *head = curr_poz->next;
          break;
       }
-      poz = list + temp_next;
-      current = (Node *)poz;
+      current = list + temp_next;
    } while (exitcount);
    return temp_size;
 }
 
-Entry *get_entries(void *data, magic_t *magic, int count) {
-   if (count == 0) {
-      return NULL;
-   }
+Entry *get_entries(void *data, magic_t *magic, uint16_t *enr) {
    void *list = data + sizeof(uint32_t);
    uint32_t head = *(uint32_t *)data;
-   Entry *entries = malloc(count * sizeof(Entry));
-   void *poz = list + head;
-   Node *current = (Node *)poz;
-   uint8_t exitcount;
-   exitcount = head == 0 ? 1 : 2;
-   for (int i = 0; i < count; i++) {
+   Node *current = list + head;
+   uint16_t bcount = 4;
+   Entry *entries = malloc(bcount * sizeof(Entry));
+   uint8_t exitcount = head == 0 ? 1 : 2;
+   uint16_t i = 0;
+   do {
+      if (i == bcount) {
+         bcount *= 2;
+         entries = realloc(entries, bcount * sizeof(Entry));
+      }
       if (current->next == 0) {
          exitcount--;
       }
-      entries[i].data = poz + 2 * sizeof(uint32_t);
+      entries[i].data = (void *)current + 2 * sizeof(uint32_t);
       entries[i].size = current->size - 2 * sizeof(uint32_t);
       entries[i].mime_desc = getMimeDesc(magic, entries[i].data, entries[i].size);  // saving also the mime char for debugging unknown mime types
       entries[i].mime = getMime(entries[i].mime_desc);
-      entries[i].poz = poz - list;
-      poz = list + current->next;
-      current = (Node *)poz;
-   }
+      entries[i].poz = (void *)current - list;
+      current = list + current->next;
+      i++;
+   } while (exitcount);
+   entries = realloc(entries, i * sizeof(Entry));
+   *enr = i;
    return entries;
 }
 
