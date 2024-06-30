@@ -222,7 +222,7 @@ void compute_string_bbox(FT_BBox *abbox, FT_UInt num_glyphs, TGlyph *glyphs) {
 void render_text(Text *text, Rect crect, const char *str, uint32_t len) {
    memset(text, 0, sizeof(Text));
    uint32_t utf32_len = 0;
-   uint32_t *utf32_str = utf8_to_utf32(str, &utf32_len);
+   uint32_t *utf32_str = utf8_to_utf32(str, &utf32_len, len);
    int pen_x = crect.pos.x, pen_y = 0;
    PGlyph glyph = text->glyphs;
    for (uint32_t i = 0; i < utf32_len; i++) {
@@ -694,6 +694,7 @@ void handle_key(xkb_keysym_t sym, struct my_state *state) {
          break;
       case XKB_KEY_Return:
          output_entry(state->map.textl[state->lstate.currtext]);
+         state->closed = true;
          break;
       default:
          break;
@@ -850,6 +851,7 @@ void setup(struct my_state *state) {
            "loading font");
    FTCHECK(FT_Set_Char_Size(face, TEXT_SIZE * 64, 0, DPI, DPI), "setting font size");
    precompute_gama();
+   memset(state->map.nntextmap, 0, sizeof(Text) * TOTAL_RECTS);
    compute_rects(rects, box_base_rect, box_tr_mat);
    compute_rects(textmap, text_base_rect, text_tr_mat);
    void *clipdata = open_shm_file_data("OS");

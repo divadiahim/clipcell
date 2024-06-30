@@ -29,7 +29,6 @@ int get_enr(void *data) {
    Node *current = (Node *)poz;
    uint8_t exitcount;
    exitcount = head == 0 ? 1 : 2;
-
    do {
       if (current->next == 0) {
          exitcount--;
@@ -41,7 +40,15 @@ int get_enr(void *data) {
    return count;
 }
 
+// void removeNode(void *list, uint32_t *index) {
+//    void *list = list + sizeof(uint32_t);
+//    void *poz = list + *index;
+//    memmove(poz, poz + ((Node *)poz)->size, ((Node *)poz)->size);
+//    *index = ((Node *)poz)->next;
+// }
+
 Entry *get_entries(void *list, uint32_t head, magic_t *magic, int count) {
+   fflush(stderr);
    if (count == 0) {
       return NULL;
    }

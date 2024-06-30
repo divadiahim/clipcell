@@ -16,7 +16,6 @@ void client(void *data, void *infub, size_t size) {
    } else {
       pushNode(dlist, infub, size, (uint32_t *)data);
    }
-   // printList(dlist, *(uint32_t *)data, &magic);
 }
 
 void *read_all(int fd, uint32_t *nread) {
@@ -52,8 +51,17 @@ int main(int argc, char *argv[]) {
    }
    int rst = atoi(argv[1]);
 
-   freopen(NULL, "rb", stdin);
-   buf = read_all(STDIN_FILENO, &bufsize);
+   if (rst == 0) {
+      freopen(NULL, "rb", stdin);
+      buf = read_all(STDIN_FILENO, &bufsize);
+      if (bufsize == 0) {
+         free(buf);
+         exit(EXIT_FAILURE);
+      }
+      else {
+         printf("bufsize = %d\n", bufsize);
+      }
+   }
 
    fd = shm_open(name, O_CREAT | O_RDWR | O_EXCL, 0666);
    if (fd == -1) {
@@ -65,6 +73,7 @@ int main(int argc, char *argv[]) {
       new = 1;
       ftruncate(fd, sizeof(uint32_t));
    }
+
    stat(path, &param);
    shmbufsize = param.st_size + bufsize + 2 * sizeof(uint32_t);
    if (ftruncate(fd, shmbufsize) == -1) {

@@ -145,10 +145,10 @@ Entry *build_textlist(void *data, uint32_t size) {
    return entries;
 }
 
-uint32_t *utf8_to_utf32(const char *utf8_str, uint32_t *out_len) {
+uint32_t *utf8_to_utf32(const char *utf8_str, uint32_t *out_len, uint32_t in_len) {
    uint32_t *utf32_str = NULL;
    uint32_t len = 0;
-   while (*utf8_str) {
+   while (*utf8_str && len < in_len) {
       if ((*utf8_str == ' ' && *(utf8_str + 1) == ' ') || strchr(exclchars, *utf8_str)) {
          utf8_str++;
          continue;
