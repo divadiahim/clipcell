@@ -15,6 +15,8 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <time.h>
+#include <sys/epoll.h>
+#include <sys/timerfd.h>
 #include <unistd.h>
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
@@ -22,6 +24,7 @@
 #include "../xml/xdg-shell-client-protocol.h"
 #include "../xml/zwlr-protocol.h"
 #include "config.h"
+#include "macros.h"
 #include "freetype/fttypes.h"
 #include FT_FREETYPE_H
 
@@ -86,7 +89,8 @@ typedef struct rects_color {
 struct repeatInfo {
    uint32_t rate;
    uint32_t delay;
-   uint32_t repeat_key;
+   xkb_keysym_t repeat_key_sym;
+   int timerfd;
 };
 
 /* Mouse */
@@ -136,9 +140,3 @@ static const Rect text_base_rect = {{BOX_PADDING + BORDER_WIDTH + TEXT_PADDING, 
 static const Poz text_tr_mat = {0, BOX_HEIGHT + BOX_SPACING};
 extern Rect textmap[TOTAL_RECTS];
 extern const char exclchars[];
-
-/* Logging */
-static const uint8_t log_level = 0;
-#define LOG(imp, ...){if (log_level <= imp) {fprintf(stderr, __VA_ARGS__);}}
-#define FTCHECK(x, e){uint32_t err = x; if (err) {LOG(10, "Freetype error: %s %u:[%s]!\n", e, err, FT_Error_String(err)); exit(1);}}
-#define ERRCHECK(x, e){if (!(x)) {LOG(10, "Error: %s %u:[%s]!\n", e, errno, strerror(errno)); exit(1);}}

@@ -1,6 +1,6 @@
 CC = gcc
 CCFLAGS = -Wall -O2 -Wno-traditional
-LFLAGS = -lm -lwayland-client -lrt $(shell pkg-config --libs freetype2) $(shell pkg-config --cflags freetype2) $(shell pkg-config --libs libmagic) -lxkbcommon -lpng
+LFLAGS = -lm -lwayland-client -lrt $(shell pkg-config --libs freetype2) $(shell pkg-config --cflags freetype2) $(shell pkg-config --libs libmagic) -lxkbcommon -lpng -lc
 SRV_LFLAGS = $(shell pkg-config --libs libmagic) 
 # LFLAGS += SRV_LFLAGS
 

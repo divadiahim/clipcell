@@ -35,7 +35,7 @@ uint32_t removeNode(void *data, uint32_t index) {
          current->next -= temp_size;
       } else if (index != *head) {
          current->next = curr_poz->next;
-         for (int i = 0; i < *head - index + temp_final_size; i++) {
+         for (int i = 0; i < *head - index + temp_final_size; i++) { //memmove no worky
             ((char *)curr_poz)[i] = ((char *)curr_poz)[i + temp_size];
          }
          *head -= temp_size;

@@ -1,5 +1,5 @@
-#include <stdint.h>
 
+#include "fdm.h"
 #include "imgload.h"
 #include "util.h"
 
@@ -44,8 +44,10 @@ struct my_state {
    void *data;
    void *clipdata;
    int cfd;
+   struct fdm *fdm;
    uint32_t width, height;
    bool closed;
+   bool should_repeat;
    Color currColor;
 };
 
@@ -702,6 +704,69 @@ void handle_key(xkb_keysym_t sym, struct my_state *state) {
          break;
    }
 }
+static bool start_repeater(struct my_state *state, xkb_keysym_t key) {
+   if (state->rinfo.rate == 0)
+      return true;
+
+   struct itimerspec t = {
+       .it_value = {.tv_sec = 0, .tv_nsec = state->rinfo.delay * 1000000},
+       .it_interval = {.tv_sec = 0, .tv_nsec = 1000000000 / state->rinfo.rate},
+   };
+
+   if (t.it_value.tv_nsec >= 1000000000) {
+      t.it_value.tv_sec += t.it_value.tv_nsec / 1000000000;
+      t.it_value.tv_nsec %= 1000000000;
+   }
+   if (t.it_interval.tv_nsec >= 1000000000) {
+      t.it_interval.tv_sec += t.it_interval.tv_nsec / 1000000000;
+      t.it_interval.tv_nsec %= 1000000000;
+   }
+   if (timerfd_settime(state->rinfo.timerfd, 0, &t, NULL) < 0) {
+      perror("timerfd_settime");
+      return false;
+   }
+
+   state->rinfo.repeat_key_sym = key;
+   return true;
+}
+static bool stop_repeater(struct my_state *state, xkb_keysym_t key) {
+   if (key != -1 && key != state->rinfo.repeat_key_sym)
+      return true;
+
+   if (timerfd_settime(state->rinfo.timerfd, 0, &(struct itimerspec){{0}}, NULL) < 0) {
+      perror("timerfd_settime");
+      return false;
+   }
+
+   return true;
+}
+static bool fdm_repeat(struct fdm *fdm, int fd, int events, void *data) {
+   if (events & EPOLLHUP)
+      return false;
+
+   struct my_state *state = data;
+   uint64_t expiration_count;
+   ssize_t ret = read(
+       state->rinfo.timerfd, &expiration_count, sizeof(expiration_count));
+
+   if (ret < 0) {
+      if (errno == EAGAIN)
+         return true;
+      return false;
+   }
+   for (size_t i = 0; i < expiration_count; i++)
+      handle_key(state->rinfo.repeat_key_sym, state);
+   return true;
+}
+static bool fdm_display(struct fdm *fdm, int fd, int events, void *data) {
+   struct my_state *state = data;
+   if (events & EPOLLHUP)
+      return false;
+   if (wl_display_dispatch(state->display) == -1)
+      return false;
+
+   return true;
+}
 static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
                             uint32_t serial, uint32_t time, uint32_t key,
                             uint32_t state) {
@@ -711,20 +776,24 @@ static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
    xkb_keysym_t sym =
        xkb_state_key_get_one_sym(client_state->xkb_state, keycode);
    xkb_keysym_get_name(sym, buf, sizeof(buf));
-   const char *action = (state == WL_KEYBOARD_KEY_STATE_PRESSED ? "press" : "release");
+   struct repeatInfo *rinfo = &client_state->rinfo;
    if (state == WL_KEYBOARD_KEY_STATE_PRESSED && sym == XKB_KEY_Escape) {
       client_state->closed = true;
       return;
    }
-   xkb_state_key_get_utf8(client_state->xkb_state, keycode, buf, sizeof(buf));
-   if (strcmp(action, "press") == 0) {
-      fprintf(stderr, "sym: %d\n", sym);
+   if (state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+      rinfo->repeat_key_sym = sym;
+      start_repeater(client_state, sym);
       handle_key(sym, client_state);
+   } else {
+      stop_repeater(client_state, sym);
    }
+   xkb_state_key_get_utf8(client_state->xkb_state, keycode, buf, sizeof(buf));
 }
 static void wl_keyboard_leave(void *data, struct wl_keyboard *wl_keyboard,
                               uint32_t serial, struct wl_surface *surface) {
    fprintf(stderr, "keyboard leave\n");
+   stop_repeater(data, -1);
 }
 
 static void wl_keyboard_modifiers(void *data, struct wl_keyboard *wl_keyboard,
@@ -739,7 +808,7 @@ static void wl_keyboard_modifiers(void *data, struct wl_keyboard *wl_keyboard,
 static void wl_keyboard_repeat_info(void *data, struct wl_keyboard *wl_keyboard,
                                     int32_t rate, int32_t delay) {
    struct my_state *client_state = data;
-   client_state->rinfo.rate = rate;
+   client_state->rinfo.rate = rate / 2;
    client_state->rinfo.delay = delay;
 }
 
@@ -860,6 +929,14 @@ void setup(struct my_state *state) {
    ERRCHECK(state->clipdata, "open_shm_file_data");
    state->lstate.old_pagenr = UINT16_MAX;
    state->map.textl = build_textlist(state->clipdata, &state->lstate.enr);
+   struct repeatInfo *rinfo = &state->rinfo;
+   if ((rinfo->timerfd = timerfd_create(CLOCK_REALTIME, TFD_NONBLOCK | TFD_CLOEXEC)) == -1) {
+      fprintf(stderr, "Failed to create timerfd: %s\n", strerror(errno));
+      exit(EXIT_FAILURE);
+   }
+   state->fdm = fdm_init();
+   fdm_add(state->fdm, rinfo->timerfd, EPOLLIN, &fdm_repeat, state);
+   fdm_add(state->fdm, wl_display_get_fd(state->display), EPOLLIN, &fdm_display, state);
 }
 void zwlr_layer_surface_v1_init(struct my_state *state, const struct zwlr_layer_surface_v1_listener *layer_surface_listener_vlt) {
    state->surface = wl_compositor_create_surface(state->compositor);
@@ -870,6 +947,10 @@ void zwlr_layer_surface_v1_init(struct my_state *state, const struct zwlr_layer_
    zwlr_layer_surface_v1_set_keyboard_interactivity(state->layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
 }
 void clean(struct my_state *state) {
+   fdm_del(state->fdm, state->rinfo.timerfd);
+   fdm_del(state->fdm, wl_display_get_fd(state->display));
+   fdm_destroy(state->fdm);
+   close(state->rinfo.timerfd);
    free_entries(state->map.textl, state->lstate.enr);
    free_textlist(state->map.nntextmap);
    free_imglist(state->map.imgmap);
@@ -890,20 +971,20 @@ void clean(struct my_state *state) {
 }
 int main(int argc, char const *argv[]) {
    struct my_state state = {0};
-   struct wl_display *display = wl_display_connect(NULL);
-   ERRCHECK(display, "wl_display_connect");
-   fprintf(stderr, "connected to display\n");
-   struct wl_registry *registry = wl_display_get_registry(display);
+   state.display = wl_display_connect(NULL);
+   ERRCHECK(state.display, "Failed to connect to Wayland display server");
+   struct wl_registry *registry = wl_display_get_registry(state.display);
    setup(&state);
    wl_registry_add_listener(registry, &registry_listener, &state);
-   wl_display_roundtrip(display);
+   wl_display_roundtrip(state.display);
    state.xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
    wl_shm_add_listener(state.shm, &shm_listener, &state);
+
    // this is so fucking retarded i feel so ashamed doing this
    zwlr_layer_surface_v1_init(&state, &layer_surface_listener_temp);
    wl_surface_commit(state.surface);
-   wl_display_dispatch(display);
-   wl_display_dispatch(display);
+   wl_display_dispatch(state.display);
+   wl_display_dispatch(state.display);
 
    zwlr_layer_surface_v1_destroy(state.layer_surface);
    wl_surface_destroy(state.surface);
@@ -911,9 +992,14 @@ int main(int argc, char const *argv[]) {
    zwlr_layer_surface_v1_init(&state, &layer_surface_listener);
    zwlr_layer_surface_v1_set_margin(state.layer_surface, pointer_init.y, -pointer_init.x, 0, 0);
    wl_surface_commit(state.surface);
-   while (wl_display_dispatch(display) != -1 && !state.closed);
+   while (!state.closed) {
+      if (wl_display_flush(state.display) == -1) {
+         break;
+      }
+      fdm_poll(state.fdm);
+   }
    clean(&state);
    wl_registry_destroy(registry);
-   wl_display_disconnect(display);
+   wl_display_disconnect(state.display);
    return 0;
 }
