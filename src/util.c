@@ -148,41 +148,6 @@ Entry *build_textlist(void *data, uint16_t *enr) {
    return entries;
 }
 
-uint32_t *utf8_to_utf32(const char *utf8_str, uint32_t *out_len, uint32_t in_len) {
-   uint32_t *utf32_str = NULL;
-   uint32_t len = 0;
-   while (*utf8_str && len < in_len) {
-      if ((*utf8_str == ' ' && *(utf8_str + 1) == ' ') || strchr(exclchars, *utf8_str)) {
-         utf8_str++;
-         in_len--;
-         continue;
-      }
-      uint32_t codepoint = 0;
-      uint8_t c = *utf8_str++;
-      if (c <= 0x7F) {
-         codepoint = c;
-      } else if (c <= 0xBF) {
-         continue;
-      } else if (c <= 0xDF) {
-         codepoint = (c & 0x1F) << 6;
-         codepoint |= (*utf8_str++ & 0x3F);
-      } else if (c <= 0xEF) {
-         codepoint = (c & 0x0F) << 12;
-         codepoint |= (*utf8_str++ & 0x3F) << 6;
-         codepoint |= (*utf8_str++ & 0x3F);
-      } else if (c <= 0xF7) {
-         codepoint = (c & 0x07) << 18;
-         codepoint |= (*utf8_str++ & 0x3F) << 12;
-         codepoint |= (*utf8_str++ & 0x3F) << 6;
-         codepoint |= (*utf8_str++ & 0x3F);
-      }
-      utf32_str = (uint32_t *)realloc(utf32_str, (len + 1) * sizeof(uint32_t));
-      utf32_str[len++] = codepoint;
-   }
-   *out_len = len;
-   return utf32_str;
-}
-
 void output_entry(Entry entry) {
    for (int i = 0; i < entry.size; i++) {
       printf("%c", ((char *)entry.data)[i]);

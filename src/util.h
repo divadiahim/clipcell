@@ -1,5 +1,5 @@
 #pragma once
-#include "../server/map.h"
+#include "map.h"
 #include "types.h"
 
 #define errExit(msg)                 \
@@ -23,7 +23,6 @@ int32_t cshmf(uint32_t size);
 void *open_shm_file_data(char *name, int *tfd);
 void truncate_shm_file(int fd, void *clipdata, uint32_t size);
 Entry *build_textlist(void *data, uint16_t *enr);
-uint32_t *utf8_to_utf32(const char *utf8_str, uint32_t *out_len, uint32_t in_len);
 void output_entry(Entry entry);
 void free_entries(Entry *entries, int count);
 void free_textlist(Text nntextmap[TOTAL_RECTS]);

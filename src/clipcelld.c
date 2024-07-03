@@ -16,7 +16,7 @@ void client(void *data, void *infub, size_t size) {
    } else {
       pushNode(dlist, infub, size, (uint32_t *)data);
    }
-   mimeClose(&magic);
+   magic_close(magic);
 }
 
 void *read_all(int fd, uint32_t *nread) {

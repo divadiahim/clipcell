@@ -59,7 +59,7 @@ static const struct wl_buffer_listener wl_buffer_listener = {
     .release = wl_buffer_release,
 };
 
-void draw_pixel(int x, int y, float intensity, struct my_state *state, void *data) {
+static void draw_pixel(int x, int y, float intensity, struct my_state *state, void *data) {
    if (x < 0 || x >= state->width || y < 0 || y >= state->height) {
       return;
    }
@@ -70,13 +70,13 @@ void draw_pixel(int x, int y, float intensity, struct my_state *state, void *dat
    result = apply_inverse_gama(result);
    *pixel = getColorHex(result);
 }
-void setPixelAA(int x, int y, int c, struct my_state *state, void *data) {
+static void setPixelAA(int x, int y, int c, struct my_state *state, void *data) {
    draw_pixel(x, y, c / 255.0, state, data);
 }
-void setPixelColor(int x, int y, int c, struct my_state *state, void *data) {
+static void setPixelColor(int x, int y, int c, struct my_state *state, void *data) {
    draw_pixel(x, y, (c & 0x000000ff) / 255.0, state, data);
 }
-void plotLineAA(int x0, int y0, int x1, int y1, struct my_state *state, void *data, int wd) {
+static void plotLineAA(int x0, int y0, int x1, int y1, struct my_state *state, void *data, int wd) {
    int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
    int dy = abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
    int err = dx - dy, e2, x2, y2; /* error value e_xy */
@@ -102,7 +102,7 @@ void plotLineAA(int x0, int y0, int x1, int y1, struct my_state *state, void *da
       }
    }
 }
-void plotQuadRationalBezierSegAA(int x0, int y0, int x1, int y1,
+static void plotQuadRationalBezierSegAA(int x0, int y0, int x1, int y1,
                                  int x2, int y2, float w, bool aa, struct my_state *state, void *data) { /* draw an anti-aliased rational quadratic Bezier segment, squared weight */
    int sx = x2 - x1, sy = y2 - y1;                                                                       /* relative values for checks */
    double dx = x0 - x2, dy = y0 - y2, xx = x0 - x1, yy = y0 - y1;
@@ -188,7 +188,7 @@ void plotQuadRationalBezierSegAA(int x0, int y0, int x1, int y1,
       } while (dy < dx); /* gradient negates -> algorithm fails */
    }
 }
-void compute_string_bbox(FT_BBox *abbox, FT_UInt num_glyphs, TGlyph *glyphs) {
+static void compute_string_bbox(FT_BBox *abbox, FT_UInt num_glyphs, TGlyph *glyphs) {
    FT_BBox bbox;
 
    bbox.xMin = bbox.yMin = 320000;
@@ -223,17 +223,21 @@ void compute_string_bbox(FT_BBox *abbox, FT_UInt num_glyphs, TGlyph *glyphs) {
    }
    *abbox = bbox;
 }
-void render_text(Text *text, Rect crect, const char *str, uint32_t len) {
+static void load_text(Text *text, Rect crect, const char *str, uint32_t len) {
    memset(text, 0, sizeof(Text));
-   uint32_t utf32_len = 0;
-   uint32_t *utf32_str = utf8_to_utf32(str, &utf32_len, len);
-   int pen_x = crect.pos.x, pen_y = 0;
+   char *dstr = strdup(str);
+   dstr[len] = '\0';
+   uint32_t wlen = mbstowcs(NULL, dstr, 0);
+   wchar_t *ostr = calloc(wlen, sizeof(wchar_t));
+   mbstowcs(ostr, dstr, wlen);
+   uint32_t pen_x = crect.pos.x, pen_y = 0;
    PGlyph glyph = text->glyphs;
-   for (uint32_t i = 0; i < utf32_len; i++) {
-      if ((pen_x >= crect.size.x && utf32_str[i] == ' ')) {
+   for (uint32_t i = 0; i < wlen; i++) {
+      if ((pen_x >= crect.size.x && ostr[i] == L' ') || !iswprint(ostr[i])) {
          continue;
       }
-      FTCHECK(FT_Load_Glyph(face, FT_Get_Char_Index(face, utf32_str[i]), 0), "Failed to load glyph");
+      fflush(stdout);
+      FTCHECK(FT_Load_Glyph(face, FT_Get_Char_Index(face, ostr[i]), FT_LOAD_DEFAULT), "Failed to load glyph");
       FTCHECK(FT_Get_Glyph(face->glyph, &glyph->image), "Failed to get glyph");
       FT_Glyph_Transform(glyph->image, 0, &glyph->pos);
       glyph->pos.x = pen_x;
@@ -250,9 +254,10 @@ void render_text(Text *text, Rect crect, const char *str, uint32_t len) {
    }
    text->num_glyphs = glyph - text->glyphs;
    compute_string_bbox(&(text->string_bbox), text->num_glyphs, text->glyphs);
-   free(utf32_str);
+   free(dstr);
+   free(ostr);
 }
-void draw_text(Text text, Rect crect, Colors FG, Colors BG, void *data) {
+static void draw_text(Text text, Rect crect, Colors FG, Colors BG, void *data) {
    FT_Glyph image;
    FT_Vector pen = {.x = crect.pos.x << 6, .y = 0};
    FT_BBox bbox;
@@ -286,7 +291,7 @@ void draw_text(Text text, Rect crect, Colors FG, Colors BG, void *data) {
    }
 }
 
-void fillRect(int x, int y, int width, int height, struct my_state *state,
+static void fillRect(int x, int y, int width, int height, struct my_state *state,
               void *data) {
    for (int i = y; i <= y + height; i++) {
       for (int j = x; j <= x + width; j++) {
@@ -294,7 +299,7 @@ void fillRect(int x, int y, int width, int height, struct my_state *state,
       }
    }
 }
-void drawRoundedRectFilled(int x1, int y1, int x2, int y2, int radius, struct my_state *state, void *data) {
+static void drawRoundedRectFilled(int x1, int y1, int x2, int y2, int radius, struct my_state *state, void *data) {
    int x, y;
    if (x1 > x2) {
       x = x1;
@@ -329,7 +334,7 @@ void drawRoundedRectFilled(int x1, int y1, int x2, int y2, int radius, struct my
       plotLineAA(cx1 - y, cy2 + x + 1, cx2 + y, cy2 + x + 1, state, data, 1);
    }
 }
-void draw_rect(Rect rect, uint16_t radius, uint16_t thickness, bool filled, Colors backg, Colors border, void *data, struct my_state *state) {
+static void draw_rect(Rect rect, uint16_t radius, uint16_t thickness, bool filled, Colors backg, Colors border, void *data, struct my_state *state) {
    int f_thickness = ceil(thickness / 2.0) - 1;
    int x = rect.pos.x;
    int y = rect.pos.y + f_thickness;
@@ -377,7 +382,7 @@ void draw_rect(Rect rect, uint16_t radius, uint16_t thickness, bool filled, Colo
       }
    }
 }
-void fill_bg_no_aa(void *data, struct my_state *state) {
+static void fill_bg_no_aa(void *data, struct my_state *state) {
    for (int y = 0; y < state->height; ++y) {
       for (int x = 0; x < state->width; ++x) {
          ((uint32_t *)data)[y * state->width + x] = colors[BACKG];
@@ -446,20 +451,20 @@ static void draw_frame(struct my_state *state) {
       draw_rect(rects[i], BORDER_RADIUS, BORDER_WIDTH, true, BOX, tbrcolor, state->data, state);
       uint32_t ai;
       if ((ai = i + state->lstate.pagenr) < state->lstate.enr) {
-         if (state->lstate.old_pagenr != state->lstate.pagenr) {  // rerender only if page changed
+         if (state->lstate.old_pagenr != state->lstate.pagenr) {
             free_stringlist(state->map.nntextmap[i].glyphs, state->map.nntextmap[i].num_glyphs);
             free_image(state->map.imgmap[i]);
             memset(&state->map.nntextmap[i], 0, sizeof(Text));
             memset(&state->map.imgmap[i], 0, sizeof(Image));
             switch (state->map.textl[ai].mime) {
                case MIME_TEXT:
-                  render_text(&state->map.nntextmap[i], textmap[i], (char *)state->map.textl[ai].data, state->map.textl[ai].size);
+                  load_text(&state->map.nntextmap[i], textmap[i], (char *)state->map.textl[ai].data, state->map.textl[ai].size);
                   break;
                case MIME_IMAGE_PNG:
                   get_buf_from_png(&state->map.imgmap[i], state->map.textl[ai].data, state->map.textl[ai].size);
                   break;
                default:
-                  render_text(&state->map.nntextmap[i], textmap[i], (char *)state->map.textl[ai].mime_desc, strlen(state->map.textl[ai].mime_desc));
+                  load_text(&state->map.nntextmap[i], textmap[i], (char *)state->map.textl[ai].mime_desc, strlen(state->map.textl[ai].mime_desc));
                   break;
             }
          }
@@ -915,9 +920,10 @@ static const struct zwlr_layer_surface_v1_listener layer_surface_listener_temp =
     .closed = layer_surface_closed,
 };
 void setup(struct my_state *state) {
+   setlocale(LC_CTYPE, "");
    FTCHECK(FT_Init_FreeType(&library), "initializing freetype");
    FTCHECK(FT_New_Face(library,
-                       "/usr/share/fonts/TTF/JetBrainsMono-Regular_kern.ttf", 0,
+                       "/usr/share/fonts/koruri/Koruri-Regular.ttf", 0,
                        &face),
            "loading font");
    FTCHECK(FT_Set_Char_Size(face, TEXT_SIZE * 64, 0, DPI, DPI), "setting font size");
