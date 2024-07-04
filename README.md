@@ -1,5 +1,3 @@
-<!-- PROJECT LOGO -->
-<br />
 <h1>Clipcell</h3>
 
 <!-- TABLE OF CONTENTS -->
