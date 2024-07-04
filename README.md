@@ -64,7 +64,7 @@ The clipboard entries are stored in a shared memory file, created by the server.
    ```sh
    wl-paste --watch clipcelld store
    ```
-   This shall pe called once pe session in your config.
+   This shall be called once per session in your config.
 
 2. To delete the saved clipboard entries (including the shm file) run:
    ```sh
