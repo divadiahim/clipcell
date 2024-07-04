@@ -45,6 +45,7 @@ A simple wayland native GUI clipboard manager, with support for text and image p
 * libxkbcommon
 * libmagic
 * wayland (obviously)
+* wl-clipboard
 
 ### Installation
 
@@ -65,16 +66,18 @@ The clipboard entries are stored in a shared memory file, created by the server.
    ```sh
    wl-paste --watch clipcelld store
    ```
-2. Once the server has created a shm file, the client can simply be run:
+   This shall pe called once pe session in your config.
+
+2. To delete the saved clipboard entries (including the shm file) run:
+   ```sh
+   clipcelld reset
+   ```
+3. Once the server has created a shm file, the client can simply be run as such:
    ```sh
    clipcell | wl-copy
-    ```
-
-
+   ```
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
 
 <!-- ROADMAP -->
 ## Roadmap

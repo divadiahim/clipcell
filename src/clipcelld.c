@@ -38,6 +38,7 @@ void *read_all(int fd, uint32_t *nread) {
 
 int main(int argc, char *argv[]) {
    int fd;
+   int8_t rst;
    struct stat param;
    char *name = "OS";
    void *buf = NULL;
@@ -47,9 +48,14 @@ int main(int argc, char *argv[]) {
    uint8_t new = 0;
 
    if (argc != 2) {
+      fprintf(stderr, "Usage: %s <store|reset>\n", argv[0]);
       exit(EXIT_FAILURE);
    }
-   int rst = atoi(argv[1]);
+   if((rst = (strcmp(argv[1], "reset") == 0) ? 1 : ((strcmp(argv[1], "store") == 0) ? 0 : -1)) == -1) {
+      fprintf(stderr, "Invalid argument: %s\n", argv[1]);
+      fprintf(stderr, "Usage: %s <store|reset>\n", argv[0]);
+      exit(EXIT_FAILURE);
+   }
 
    if (rst == 0) {
       freopen(NULL, "rb", stdin);
