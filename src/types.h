@@ -25,6 +25,7 @@
 #include <xkbcommon/xkbcommon.h>
 
 #include "../xml/xdg-shell-client-protocol.h"
+#include "../xml/xdg-output.h"
 #include "../xml/zwlr-protocol.h"
 #include "config.h"
 #include "macros.h"

@@ -1,4 +1,3 @@
-
 #include "fdm.h"
 #include "imgload.h"
 #include "util.h"
@@ -16,20 +15,24 @@ struct maps {
    Image imgmap[TOTAL_RECTS];
    Entry *textl;
 };
+
+struct mon {
+   uint32_t width, height;
+   int32_t rwidth, rheight;
+   struct wl_output *output;
+   struct zxdg_output_v1 *xdg_output;
+};
+
 /*wayland*/
 struct my_state {
    struct wl_display *display;
-   struct wl_output *output;
    struct wl_registry *registry;
    struct wl_compositor *compositor;
    struct wl_surface *surface;
    struct zwlr_layer_shell_v1 *layer_shell;
    struct zwlr_layer_surface_v1 *layer_surface;
+   struct zxdg_output_manager_v1 *xdg_output_manager;
    struct wl_shm *shm;
-   struct xdg_surface *xdg_surface;
-   struct xdg_toplevel *xdg_toplevel;
-   struct xdg_popup *xdg_popup;
-   struct xdg_positioner *xdg_positioner;
    struct wl_seat *wl_seat;
    struct wl_keyboard *wl_keyboard;
    struct wl_pointer *wl_pointer;
@@ -41,11 +44,13 @@ struct my_state {
    struct lstate lstate;
    struct maps map;
    struct wl_buffer *buffer;
+   struct fdm *fdm;
+   struct mon *mons;
    void *data;
    void *clipdata;
    int cfd;
-   struct fdm *fdm;
    uint32_t width, height;
+   uint32_t outn;
    bool closed;
    bool should_repeat;
    Color currColor;
@@ -53,7 +58,15 @@ struct my_state {
 
 FT_Face face;
 // Why no NULL listeners haaaaaaaaa?
-static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer) {};
+static void wl_seat_name(void *data, struct wl_seat *wl_seat, const char *name) {}
+static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer) {}
+static void wl_output_done(void *data, struct wl_output *wl_output) {}
+static void wl_output_scale(void *data, struct wl_output *wl_output, int32_t factor) {}
+static void get_mode(void *data, struct wl_output *wl_output, uint32_t flags, int32_t width, int32_t height, int32_t refresh) {}
+static void get_geometry(void *data, struct wl_output *wl_output, int32_t x, int32_t y, int32_t physical_width, int32_t physical_height, int32_t subpixel, const char *make, const char *model, int32_t transform) {}
+static void zxout_done(void *d, struct zxdg_output_v1 *z) {}
+static void zxout_description(void *d, struct zxdg_output_v1 *z, const char *c) {}
+static void zxout_name(void *d, struct zxdg_output_v1 *z, const char *c) {}
 
 static const struct wl_buffer_listener wl_buffer_listener = {
     .release = wl_buffer_release,
@@ -103,8 +116,8 @@ static void plotLineAA(int x0, int y0, int x1, int y1, struct my_state *state, v
    }
 }
 static void plotQuadRationalBezierSegAA(int x0, int y0, int x1, int y1,
-                                 int x2, int y2, float w, bool aa, struct my_state *state, void *data) { /* draw an anti-aliased rational quadratic Bezier segment, squared weight */
-   int sx = x2 - x1, sy = y2 - y1;                                                                       /* relative values for checks */
+                                        int x2, int y2, float w, bool aa, struct my_state *state, void *data) { /* draw an anti-aliased rational quadratic Bezier segment, squared weight */
+   int sx = x2 - x1, sy = y2 - y1;                                                                              /* relative values for checks */
    double dx = x0 - x2, dy = y0 - y2, xx = x0 - x1, yy = y0 - y1;
    double xy = xx * sy + yy * sx, cur = xx * sy - yy * sx, err, ed; /* curvature */
    bool f;
@@ -268,17 +281,17 @@ static void draw_text(Text text, Rect crect, Colors FG, Colors BG, void *data) {
       FT_Glyph_Transform(image, 0, &pen);
       FTCHECK(FT_Glyph_To_Bitmap(&image, FT_RENDER_MODE_LCD, 0, 1), "rendering failed");
       FT_BitmapGlyph bit = (FT_BitmapGlyph)image;
-      int lcd_ww = bit->bitmap.width / 3;
-      int k = 0;
-      int z = -(bit->bitmap.pitch - bit->bitmap.width);
-      int rr = bit->bitmap.rows;
+      uint32_t lcd_ww = bit->bitmap.width / 3;
+      uint32_t rr = bit->bitmap.rows;
+      uint32_t k = 0;
+      int32_t z = -(bit->bitmap.pitch - bit->bitmap.width);
       Color fg = getColorFromHex(colorsGamma[FG]);
       Color bg = getColorFromHex(colorsGamma[BG]);
-      for (int i = 0; i < rr * lcd_ww; i++, z += 3) {
-         int p = i % lcd_ww;
+      for (uint32_t i = 0; i < rr * lcd_ww; i++, z += 3) {
+         uint32_t p = i % lcd_ww;
          Color result = blendLCD(fg, bg, bit, z);
          result = apply_inverse_gama(result);
-         if (i % lcd_ww == 0) {
+         if (!p) {
             k++;
             z += bit->bitmap.pitch - bit->bitmap.width;
          }
@@ -292,7 +305,7 @@ static void draw_text(Text text, Rect crect, Colors FG, Colors BG, void *data) {
 }
 
 static void fillRect(int x, int y, int width, int height, struct my_state *state,
-              void *data) {
+                     void *data) {
    for (int i = y; i <= y + height; i++) {
       for (int j = x; j <= x + width; j++) {
          draw_pixel(j, i, 0, state, data);
@@ -475,10 +488,6 @@ static void draw_frame(struct my_state *state) {
    state->lstate.old_pagenr = state->lstate.pagenr;
 }
 
-static void wl_seat_name(void *data, struct wl_seat *wl_seat,
-                         const char *name) {
-   fprintf(stderr, "seat name: %s\n", name);
-}
 static void wl_pointer_enter(void *data, struct wl_pointer *wl_pointer,
                              uint32_t serial, struct wl_surface *surface,
                              wl_fixed_t surface_x, wl_fixed_t surface_y) {
@@ -866,6 +875,11 @@ static void registry_handle_global(void *data, struct wl_registry *registry,
       wl_seat_add_listener(state->wl_seat, &wl_seat_listener, state);
    } else if (strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
       state->layer_shell = wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface, 1);
+   } else if (strcmp(interface, wl_output_interface.name) == 0) {
+      state->mons = realloc(state->mons, (state->outn + 1) * sizeof(struct mon));
+      state->mons[state->outn++].output = wl_registry_bind(registry, name, &wl_output_interface, 3);
+   } else if (strcmp(interface, zxdg_output_manager_v1_interface.name) == 0) {
+      state->xdg_output_manager = wl_registry_bind(registry, name, &zxdg_output_manager_v1_interface, 3);
    }
 }
 static void registry_handle_global_remove(void *data,
@@ -919,6 +933,46 @@ static const struct zwlr_layer_surface_v1_listener layer_surface_listener_temp =
     .configure = layer_surface_configure_temp,
     .closed = layer_surface_closed,
 };
+
+static const struct wl_output_listener wl_output_listener = {
+    .geometry = get_geometry,
+    .mode = get_mode,
+    .done = wl_output_done,
+    .scale = wl_output_scale,
+};
+
+static void zxout_logical_position(void *d, struct zxdg_output_v1 *z, int x, int y) {
+   struct my_state *state = d;
+   for (int i = 0; i < state->outn; i++) {
+      if (state->mons[i].xdg_output == z) {
+         state->mons[i].rwidth = x;
+         state->mons[i].rheight = y;
+         break;
+      }
+   }
+   fprintf(stderr, "logical position: %d %d\n", x, y);
+}
+
+static void zxout_logical_size(void *d, struct zxdg_output_v1 *z, int x, int y) {
+   struct my_state *state = d;
+   for (int i = 0; i < state->outn; i++) {
+      if (state->mons[i].xdg_output == z) {
+         state->mons[i].width = x;
+         state->mons[i].height = y;
+         break;
+      }
+   }
+   fprintf(stderr, "logical size: %d %d\n", x, y);
+}
+
+static const struct zxdg_output_v1_listener zxout_listener = {
+    .name = zxout_name,
+    .logical_position = zxout_logical_position,
+    .logical_size = zxout_logical_size,
+    .done = zxout_done,
+    .description = zxout_description,
+};
+
 void setup(struct my_state *state) {
    setlocale(LC_CTYPE, "");
    FTCHECK(FT_Init_FreeType(&library), "initializing freetype");
@@ -983,6 +1037,13 @@ int main(int argc, char const *argv[]) {
    setup(&state);
    wl_registry_add_listener(registry, &registry_listener, &state);
    wl_display_roundtrip(state.display);
+
+   for (uint8_t i = 0; i < state.outn; i++) {  // do you really have more than 255 monitors?
+      wl_output_add_listener(state.mons[i].output, &wl_output_listener, &state);
+      state.mons[i].xdg_output = zxdg_output_manager_v1_get_xdg_output(state.xdg_output_manager, state.mons[i].output);
+      zxdg_output_v1_add_listener(state.mons[i].xdg_output, &zxout_listener, &state);
+   }
+   
    state.xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
    wl_shm_add_listener(state.shm, &shm_listener, &state);
 
@@ -996,8 +1057,14 @@ int main(int argc, char const *argv[]) {
    wl_surface_destroy(state.surface);
 
    zwlr_layer_surface_v1_init(&state, &layer_surface_listener);
-   zwlr_layer_surface_v1_set_margin(state.layer_surface, pointer_init.y, -pointer_init.x, 0, 0);
+   for (uint8_t i = 0; i < state.outn; i++) {
+      if (pointer_init.y <= state.mons[i].width - state.mons[i].rwidth && (-pointer_init.x) <= state.mons[i].height - state.mons[i].rheight) {
+         zwlr_layer_surface_v1_set_margin(state.layer_surface, pointer_init.y + state.mons[i].rheight, -pointer_init.x + state.mons[i].rwidth, 0, 0);
+         break;
+      }
+   }
    wl_surface_commit(state.surface);
+
    while (!state.closed) {
       if (wl_display_flush(state.display) == -1) {
          break;
