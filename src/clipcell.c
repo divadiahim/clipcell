@@ -976,10 +976,8 @@ static const struct zxdg_output_v1_listener zxout_listener = {
 void setup(struct my_state *state) {
    setlocale(LC_CTYPE, "");
    FTCHECK(FT_Init_FreeType(&library), "initializing freetype");
-   FTCHECK(FT_New_Face(library,
-                       "/usr/share/fonts/koruri/Koruri-Regular.ttf", 0,
-                       &face),
-           "loading font");
+   FTCHECK(FT_New_Face(library, FONT_PATH, 0, &face),
+           "loading font, have you set a valid font in src/config.h? Current path is " FONT_PATH);
    FTCHECK(FT_Set_Char_Size(face, TEXT_SIZE * 64, 0, DPI, DPI), "setting font size");
    precompute_gama();
    memset(state->map.nntextmap, 0, sizeof(Text) * TOTAL_RECTS);
@@ -1076,3 +1074,4 @@ int main(int argc, char const *argv[]) {
    wl_display_disconnect(state.display);
    return 0;
 }
+

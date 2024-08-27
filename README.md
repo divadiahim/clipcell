@@ -45,6 +45,12 @@ A simple wayland native GUI clipboard manager, with support for text and image p
 * wayland (obviously)
 * wl-clipboard
 
+### Configuration
+
+1. Configuration
+   In suckless fashion configuring the clipboard is done only through the src/config.h file.
+   To keep everything minimal and not bloat the project with unnecessary fontconfig dependencies a path to the font that is to be used should be set in the config file, by default it being ``/usr/share/fonts/koruri/Koruri-Regular.ttf``.
+
 ### Installation
 
 1. Just a simple

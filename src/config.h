@@ -1,5 +1,7 @@
 #pragma once
 
+#define FONT_PATH "/usr/share/fonts/TTF/Koruri-Regular.ttf"
+
 #define TEXT_SIZE 7
 #define SCREEN_WIDTH 1920
 #define SCREEN_HEIGHT 1080
