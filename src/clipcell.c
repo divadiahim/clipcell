@@ -1056,7 +1056,7 @@ int main(int argc, char const *argv[]) {
 
    zwlr_layer_surface_v1_init(&state, &layer_surface_listener);
    for (uint8_t i = 0; i < state.outn; i++) {
-      if (pointer_init.y <= state.mons[i].width - state.mons[i].rwidth && (-pointer_init.x) <= state.mons[i].height - state.mons[i].rheight) {
+      if ((-pointer_init.x) <= state.mons[i].width - state.mons[i].rwidth && pointer_init.y <= state.mons[i].height - state.mons[i].rheight) {
          zwlr_layer_surface_v1_set_margin(state.layer_surface, pointer_init.y + state.mons[i].rheight, -pointer_init.x + state.mons[i].rwidth, 0, 0);
          break;
       }
