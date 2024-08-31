@@ -17,7 +17,7 @@ struct maps {
 };
 
 struct mon {
-   uint32_t width, height;
+   int32_t width, height;
    int32_t rwidth, rheight;
    struct wl_output *output;
    struct zxdg_output_v1 *xdg_output;
@@ -1056,8 +1056,9 @@ int main(int argc, char const *argv[]) {
 
    zwlr_layer_surface_v1_init(&state, &layer_surface_listener);
    for (uint8_t i = 0; i < state.outn; i++) {
-      if ((-pointer_init.x) <= state.mons[i].width - state.mons[i].rwidth && pointer_init.y <= state.mons[i].height - state.mons[i].rheight) {
-         zwlr_layer_surface_v1_set_margin(state.layer_surface, pointer_init.y + state.mons[i].rheight, -pointer_init.x + state.mons[i].rwidth, 0, 0);
+      if ((-pointer_init.x + WINDOW_WIDTH) <= state.mons[i].width + state.mons[i].rwidth && pointer_init.y <= state.mons[i].height + state.mons[i].rheight) {
+	fprintf(stderr, "monitor %d\n", i);
+         zwlr_layer_surface_v1_set_margin(state.layer_surface, pointer_init.y + state.mons[i].rheight, -(pointer_init.x + state.mons[i].rwidth), 0, 0);
          break;
       }
    }
