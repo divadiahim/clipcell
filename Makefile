@@ -29,7 +29,6 @@ run: clipcell
 
 clipcelld: $(BIN)/clipcelld
 
-
 install: $(BIN)/clipcell $(BIN)/clipcelld
 	cp $(BIN)/clipcell /usr/bin/clipcell	
 	cp $(BIN)/clipcelld /usr/bin/clipcelld
