@@ -672,19 +672,9 @@ static void wl_keyboard_enter(void *data, struct wl_keyboard *wl_keyboard,
    }
 }
 void redraw(struct my_state *state, int direction) {
-   int rdry = 0;
-   int trdry = state->height;
-   int index = state->lstate.currbox;
-   if (!direction && index < TOTAL_RECTS && index > 0) {
-      rdry = rects[state->lstate.currbox - 1].pos.y;
-      trdry = rects[state->lstate.currbox].pos.y + rects[state->lstate.currbox].size.y;
-   } else if (direction && index < TOTAL_RECTS - 1) {
-      rdry = rects[state->lstate.currbox].pos.y;
-      trdry = rects[state->lstate.currbox + 1].pos.y + rects[state->lstate.currbox + 1].size.y;
-   }
    draw_frame(state);
    wl_surface_attach(state->surface, state->buffer, 0, 0);
-   wl_surface_damage(state->surface, rects[state->lstate.currbox].pos.x, rdry, state->width, trdry);
+   wl_surface_damage(state->surface, 0, 0, state->width, state->height); /// This damage could be made smarter but honestly it really doesn't hurt performance or resource in any significant manner so :3
    wl_surface_commit(state->surface);
 }
 void handle_key(xkb_keysym_t sym, struct my_state *state) {
@@ -871,7 +861,7 @@ static void registry_handle_global(void *data, struct wl_registry *registry,
    } else if (strcmp(interface, wl_shm_interface.name) == 0) {
       state->shm = wl_registry_bind(registry, name, &wl_shm_interface, 1);
    } else if (strcmp(interface, wl_seat_interface.name) == 0) {
-      state->wl_seat = wl_registry_bind(registry, name, &wl_seat_interface, 9);
+      state->wl_seat = wl_registry_bind(registry, name, &wl_seat_interface, 8);
       wl_seat_add_listener(state->wl_seat, &wl_seat_listener, state);
    } else if (strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
       state->layer_shell = wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface, 1);
@@ -1000,6 +990,7 @@ void zwlr_layer_surface_v1_init(struct my_state *state, const struct zwlr_layer_
    state->surface = wl_compositor_create_surface(state->compositor);
    state->layer_surface = zwlr_layer_shell_v1_get_layer_surface(state->layer_shell, state->surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "clipcell");
    zwlr_layer_surface_v1_add_listener(state->layer_surface, layer_surface_listener_vlt, state);
+   // zwlr_layer_surface_v1_set_anchor(state->layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM);
    zwlr_layer_surface_v1_set_anchor(state->layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP);
    zwlr_layer_surface_v1_set_size(state->layer_surface, WINDOW_WIDTH, WINDOW_HEIGHT);
    zwlr_layer_surface_v1_set_keyboard_interactivity(state->layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);

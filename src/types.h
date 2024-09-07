@@ -68,22 +68,6 @@ typedef struct Color {
    float a;
 } Color;
 
-typedef enum Colors {
-   BACKG,
-   FOREG,
-   BORDER,
-   BORDER_SELECTED,
-   BOX,
-} Colors;
-
-static const uint64_t colors[TOTAL_COLORS] = {
-    [BACKG] = 0xFF0e0e10,
-    [FOREG] = 0xFFc6c5cf,
-    [BORDER] = 0xFF2B2B31,
-    [BORDER_SELECTED] = 0xFFc2c5dc,
-    [BOX] = 0xFF1f1f23,
-};
-
 typedef struct rects_color {
    uint32_t border;
    uint32_t background;
