@@ -24,7 +24,11 @@ $(BIN)/clipcelld: $(SRC_FILES_SRV)
 
 clipcell: $(BIN)/clipcell
 
+run: clipcell
+	$(BIN)/clipcell
+
 clipcelld: $(BIN)/clipcelld
+
 
 install: $(BIN)/clipcell $(BIN)/clipcelld
 	cp $(BIN)/clipcell /usr/bin/clipcell	

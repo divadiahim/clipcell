@@ -672,19 +672,9 @@ static void wl_keyboard_enter(void *data, struct wl_keyboard *wl_keyboard,
    }
 }
 void redraw(struct my_state *state, int direction) {
-   int rdry = 0;
-   int trdry = state->height;
-   int index = state->lstate.currbox;
-   if (!direction && index < TOTAL_RECTS && index > 0) {
-      rdry = rects[state->lstate.currbox - 1].pos.y;
-      trdry = rects[state->lstate.currbox].pos.y + rects[state->lstate.currbox].size.y;
-   } else if (direction && index < TOTAL_RECTS - 1) {
-      rdry = rects[state->lstate.currbox].pos.y;
-      trdry = rects[state->lstate.currbox + 1].pos.y + rects[state->lstate.currbox + 1].size.y;
-   }
    draw_frame(state);
    wl_surface_attach(state->surface, state->buffer, 0, 0);
-   wl_surface_damage(state->surface, rects[state->lstate.currbox].pos.x, rdry, state->width, trdry);
+   wl_surface_damage(state->surface, 0, 0, state->width, state->height); /// This damage could be made smarter but honestly it really doesn't hurt performance or resource in any significant manner so :3
    wl_surface_commit(state->surface);
 }
 void handle_key(xkb_keysym_t sym, struct my_state *state) {
