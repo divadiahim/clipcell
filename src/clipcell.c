@@ -871,7 +871,7 @@ static void registry_handle_global(void *data, struct wl_registry *registry,
    } else if (strcmp(interface, wl_shm_interface.name) == 0) {
       state->shm = wl_registry_bind(registry, name, &wl_shm_interface, 1);
    } else if (strcmp(interface, wl_seat_interface.name) == 0) {
-      state->wl_seat = wl_registry_bind(registry, name, &wl_seat_interface, 9);
+      state->wl_seat = wl_registry_bind(registry, name, &wl_seat_interface, 8);
       wl_seat_add_listener(state->wl_seat, &wl_seat_listener, state);
    } else if (strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
       state->layer_shell = wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface, 1);
