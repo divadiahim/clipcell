@@ -13,8 +13,8 @@ SRC_FILES_SRV := $(wildcard src/clipcelld.c src/map.c)
 
 BIN = bin
 INCLUDE = include 
-	
-$(BIN)/clipcell: $(SRC_FILES_CLIP)
+
+$(BIN)/clipcell: $(SRC_FILES_CLIP) src/config.h
 	mkdir -p $(BIN)
 	$(CC) $(CCFLAGS) -I$(INCLUDE) -o $@ $^ $(LFLAGS)
 
