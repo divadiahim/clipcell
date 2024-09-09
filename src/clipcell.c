@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #include "fdm.h"
 #include "imgload.h"
 #include "util.h"
@@ -52,6 +54,7 @@ struct my_state {
    uint32_t width, height;
    uint32_t outn;
    bool closed;
+   bool done;
    bool should_repeat;
    Color currColor;
 };
@@ -59,7 +62,10 @@ struct my_state {
 FT_Face face;
 // Why no NULL listeners haaaaaaaaa?
 static void wl_seat_name(void *data, struct wl_seat *wl_seat, const char *name) {}
-static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer) {}
+static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer) {
+   struct my_state *state = data;
+   state->done = 1;
+}
 static void wl_output_done(void *data, struct wl_output *wl_output) {}
 static void wl_output_scale(void *data, struct wl_output *wl_output, int32_t factor) {}
 static void get_mode(void *data, struct wl_output *wl_output, uint32_t flags, int32_t width, int32_t height, int32_t refresh) {}
@@ -420,7 +426,7 @@ static void create_shm_pool(struct my_state *state) {
    }
    close(fd);
    wl_shm_pool_destroy(pool);
-   wl_buffer_add_listener(state->buffer, &wl_buffer_listener, NULL);
+   wl_buffer_add_listener(state->buffer, &wl_buffer_listener, state);
 }
 static void draw_png_bytep(Image img, Poz pos, void *data, struct my_state *state, float ratio) {
    if (img.data == NULL)
@@ -458,6 +464,7 @@ static void draw_png_bytep(Image img, Poz pos, void *data, struct my_state *stat
 }
 
 static void draw_frame(struct my_state *state) {
+   state->done = 0;
    fill_bg_no_aa(state->data, state);
    for (int i = 0; i < TOTAL_RECTS; i++) {
       Colors tbrcolor = (i == state->lstate.currbox) ? BORDER_SELECTED : BORDER;
@@ -486,6 +493,7 @@ static void draw_frame(struct my_state *state) {
       }
    }
    state->lstate.old_pagenr = state->lstate.pagenr;
+   // state->done = 1;
 }
 
 static void wl_pointer_enter(void *data, struct wl_pointer *wl_pointer,
@@ -672,10 +680,12 @@ static void wl_keyboard_enter(void *data, struct wl_keyboard *wl_keyboard,
    }
 }
 void redraw(struct my_state *state, int direction) {
-   draw_frame(state);
-   wl_surface_attach(state->surface, state->buffer, 0, 0);
-   wl_surface_damage(state->surface, 0, 0, state->width, state->height); /// This damage could be made smarter but honestly it really doesn't hurt performance or resource in any significant manner so :3
-   wl_surface_commit(state->surface);
+   if (state->done) {
+      draw_frame(state);
+      wl_surface_attach(state->surface, state->buffer, 0, 0);
+      wl_surface_damage(state->surface, 0, 0, state->width, state->height);  /// This damage could be made smarter but honestly it really doesn't hurt performance or resource in any significant manner so
+      wl_surface_commit(state->surface);
+   }
 }
 void handle_key(xkb_keysym_t sym, struct my_state *state) {
    switch (sym) {
@@ -894,6 +904,7 @@ static void layer_surface_configure(void *data,
    state->width = width;
    state->height = height;
    draw_frame(state);
+   state->done = 1;
    wl_surface_attach(state->surface, state->buffer, 0, 0);
    wl_surface_damage(state->surface, 0, 0, width, height);
    wl_surface_commit(state->surface);
@@ -985,6 +996,7 @@ void setup(struct my_state *state) {
    state->fdm = fdm_init();
    fdm_add(state->fdm, rinfo->timerfd, EPOLLIN, &fdm_repeat, state);
    fdm_add(state->fdm, wl_display_get_fd(state->display), EPOLLIN, &fdm_display, state);
+   state->done = 1;
 }
 void zwlr_layer_surface_v1_init(struct my_state *state, const struct zwlr_layer_surface_v1_listener *layer_surface_listener_vlt) {
    state->surface = wl_compositor_create_surface(state->compositor);
@@ -1032,7 +1044,7 @@ int main(int argc, char const *argv[]) {
       state.mons[i].xdg_output = zxdg_output_manager_v1_get_xdg_output(state.xdg_output_manager, state.mons[i].output);
       zxdg_output_v1_add_listener(state.mons[i].xdg_output, &zxout_listener, &state);
    }
-   
+
    state.xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
    wl_shm_add_listener(state.shm, &shm_listener, &state);
 
@@ -1048,7 +1060,7 @@ int main(int argc, char const *argv[]) {
    zwlr_layer_surface_v1_init(&state, &layer_surface_listener);
    for (uint8_t i = 0; i < state.outn; i++) {
       if ((-pointer_init.x + WINDOW_WIDTH) <= state.mons[i].width + state.mons[i].rwidth && pointer_init.y <= state.mons[i].height + state.mons[i].rheight) {
-	fprintf(stderr, "monitor %d\n", i);
+         fprintf(stderr, "monitor %d\n", i);
          zwlr_layer_surface_v1_set_margin(state.layer_surface, pointer_init.y + state.mons[i].rheight, -(pointer_init.x + state.mons[i].rwidth), 0, 0);
          break;
       }
@@ -1066,4 +1078,3 @@ int main(int argc, char const *argv[]) {
    wl_display_disconnect(state.display);
    return 0;
 }
-
