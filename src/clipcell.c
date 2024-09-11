@@ -279,10 +279,8 @@ static void load_text(Text *text, Rect crect, const char *str, uint32_t len) {
 static void draw_text(Text text, Rect crect, Colors FG, Colors BG, void *data) {
    FT_Glyph image;
    FT_Vector pen = {.x = crect.pos.x << 6, .y = 0};
-   FT_BBox bbox;
    for (int n = 0; n < text.num_glyphs; n++) {
       FTCHECK(FT_Glyph_Copy(text.glyphs[n].image, &image), "copy failed");
-      FT_Glyph_Get_CBox(image, ft_glyph_bbox_pixels, &bbox);
       pen.x = (text.glyphs[n].pos.x >= crect.size.x) ? crect.pos.x << 6 : pen.x;
       FT_Glyph_Transform(image, 0, &pen);
       FTCHECK(FT_Glyph_To_Bitmap(&image, FT_RENDER_MODE_LCD, 0, 1), "rendering failed");
@@ -296,15 +294,17 @@ static void draw_text(Text text, Rect crect, Colors FG, Colors BG, void *data) {
       for (uint32_t i = 0; i < rr * lcd_ww; i++, z += 3) {
          uint32_t p = i % lcd_ww;
          Color result = blendLCD(fg, bg, bit, z);
-         result = apply_inverse_gama(result);
          if (!p) {
             k++;
             z += bit->bitmap.pitch - bit->bitmap.width;
          }
+         if (getColorHex(result) == colorsGamma[BOX])
+            continue;
+         result = apply_inverse_gama(result);
          ((uint32_t *)data)[p + (text.glyphs[n].pos.y + k + crect.pos.y - bit->top + (face->size->metrics.height >> 7)) * WINDOW_WIDTH +
                             bit->left] = getColorHex(result);
       }
-      pen.x += (image->advance.x >> 10);
+      pen.x += image->advance.x >> 10;
       pen.y += image->advance.y >> 10;
       FT_Done_Glyph(image);
    }
