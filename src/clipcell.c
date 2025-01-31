@@ -59,13 +59,15 @@ struct my_state {
    Color currColor;
 };
 
-FT_Face face;
+static FT_Face face;
+static FT_Library library;
+static Rect rects[TOTAL_RECTS];
+static Rect textmap[TOTAL_RECTS];
+static uint64_t colorsGamma[TOTAL_COLORS];
+static PointerC pointer_init;
+
 // Why no NULL listeners haaaaaaaaa?
 static void wl_seat_name(void *data, struct wl_seat *wl_seat, const char *name) {}
-static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer) {
-   struct my_state *state = data;
-   state->done = 1;
-}
 static void wl_output_done(void *data, struct wl_output *wl_output) {}
 static void wl_output_scale(void *data, struct wl_output *wl_output, int32_t factor) {}
 static void get_mode(void *data, struct wl_output *wl_output, uint32_t flags, int32_t width, int32_t height, int32_t refresh) {}
@@ -73,6 +75,10 @@ static void get_geometry(void *data, struct wl_output *wl_output, int32_t x, int
 static void zxout_done(void *d, struct zxdg_output_v1 *z) {}
 static void zxout_description(void *d, struct zxdg_output_v1 *z, const char *c) {}
 static void zxout_name(void *d, struct zxdg_output_v1 *z, const char *c) {}
+static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer) {
+   struct my_state *state = data;
+   state->done = 1;
+}
 
 static const struct wl_buffer_listener wl_buffer_listener = {
     .release = wl_buffer_release,
@@ -83,30 +89,33 @@ static void draw_pixel(int x, int y, float intensity, struct my_state *state, vo
       return;
    }
    uint32_t *pixel = &((uint32_t *)data)[y * state->width + x];
-   Color bg = getColorFromHex(*pixel);
-   bg = apply_gama(bg);
-   Color result = blend(state->currColor, bg, state->currColor.a / 255.0 * (1 - intensity));
-   result = apply_inverse_gama(result);
-   *pixel = getColorHex(result);
+   Color bg = GET_COLOR_FROM_HEX(*pixel);
+   bg = APPLY_GAMA(bg);
+   Color result = BLEND(state->currColor, bg, state->currColor.a / 255.0 * (1 - intensity));
+   result = APPLY_INVERSE_GAMA(result);
+   *pixel = GET_COLOR_HEX(result);
 }
+
 static void setPixelAA(int x, int y, int c, struct my_state *state, void *data) {
    draw_pixel(x, y, c / 255.0, state, data);
 }
+
 static void setPixelColor(int x, int y, int c, struct my_state *state, void *data) {
    draw_pixel(x, y, (c & 0x000000ff) / 255.0, state, data);
 }
+
 static void plotLineAA(int x0, int y0, int x1, int y1, struct my_state *state, void *data, int wd) {
    int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
    int dy = abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
    int err = dx - dy, e2, x2, y2; /* error value e_xy */
    float ed = dx + dy == 0 ? 1 : sqrt((float)dx * dx + (float)dy * dy);
    for (wd = (wd + 1) / 2;;) { /* pixel loop */
-      setPixelColor(x0, y0, max(0, 255 * (abs(err - dx + dy) / ed - wd + 1)), state, data);
+      setPixelColor(x0, y0, MAX(0, 255 * (abs(err - dx + dy) / ed - wd + 1)), state, data);
       e2 = err;
       x2 = x0;
       if (2 * e2 >= -dx) { /* x step */
          for (e2 += dy, y2 = y0; e2 < ed * wd && (y1 != y2 || dx > dy); e2 += dx)
-            setPixelColor(x0, y2 += sy, max(0, 255 * (abs(e2) / ed - wd + 1)), state, data);
+            setPixelColor(x0, y2 += sy, MAX(0, 255 * (abs(e2) / ed - wd + 1)), state, data);
          if (x0 == x1) break;
          e2 = err;
          err -= dy;
@@ -114,13 +123,14 @@ static void plotLineAA(int x0, int y0, int x1, int y1, struct my_state *state, v
       }
       if (2 * e2 <= dy) { /* y step */
          for (e2 = dx - e2; e2 < ed * wd && (x1 != x2 || dx < dy); e2 += dy)
-            setPixelColor(x2 += sx, y0, max(0, 255 * (abs(e2) / ed - wd + 1)), state, data);
+            setPixelColor(x2 += sx, y0, MAX(0, 255 * (abs(e2) / ed - wd + 1)), state, data);
          if (y0 == y1) break;
          err += dx;
          y0 += sy;
       }
    }
 }
+
 static void plotQuadRationalBezierSegAA(int x0, int y0, int x1, int y1,
                                         int x2, int y2, float w, bool aa, struct my_state *state, void *data) { /* draw an anti-aliased rational quadratic Bezier segment, squared weight */
    int sx = x2 - x1, sy = y2 - y1;                                                                              /* relative values for checks */
@@ -171,7 +181,7 @@ static void plotQuadRationalBezierSegAA(int x0, int y0, int x1, int y1,
          cur = fmin(dx - xy, xy - dy);
          ed = fmax(dx - xy, xy - dy);
          ed += 2 * ed * cur * cur / (4. * ed * ed + cur * cur); /* approximate error distance */
-         x1 = 255 * fabs(err - dx - dy + xy) / ed;              /* get blend value by pixel error */
+         x1 = 255 * fabs(err - dx - dy + xy) / ed;              /* get BLEND value by pixel error */
          if (x1 < 256) {
             if (aa)
                setPixelAA(x0, y0, x1, state, data);
@@ -207,6 +217,7 @@ static void plotQuadRationalBezierSegAA(int x0, int y0, int x1, int y1,
       } while (dy < dx); /* gradient negates -> algorithm fails */
    }
 }
+
 static void compute_string_bbox(FT_BBox *abbox, FT_UInt num_glyphs, TGlyph *glyphs) {
    FT_BBox bbox;
 
@@ -242,6 +253,7 @@ static void compute_string_bbox(FT_BBox *abbox, FT_UInt num_glyphs, TGlyph *glyp
    }
    *abbox = bbox;
 }
+
 static void load_text(Text *text, Rect crect, const char *str, uint32_t len) {
    memset(text, 0, sizeof(Text));
    char *dstr = strdup(str);
@@ -276,6 +288,7 @@ static void load_text(Text *text, Rect crect, const char *str, uint32_t len) {
    free(dstr);
    free(ostr);
 }
+
 static void draw_text(Text text, Rect crect, Colors FG, Colors BG, void *data) {
    FT_Glyph image;
    FT_Vector pen = {.x = crect.pos.x << 6, .y = 0};
@@ -289,20 +302,20 @@ static void draw_text(Text text, Rect crect, Colors FG, Colors BG, void *data) {
       uint32_t rr = bit->bitmap.rows;
       uint32_t k = 0;
       int32_t z = -(bit->bitmap.pitch - bit->bitmap.width);
-      Color fg = getColorFromHex(colorsGamma[FG]);
-      Color bg = getColorFromHex(colorsGamma[BG]);
+      Color fg = GET_COLOR_FROM_HEX(colorsGamma[FG]);
+      Color bg = GET_COLOR_FROM_HEX(colorsGamma[BG]);
       for (uint32_t i = 0; i < rr * lcd_ww; i++, z += 3) {
          uint32_t p = i % lcd_ww;
-         Color result = blendLCD(fg, bg, bit, z);
+         Color result = BLEND_LCD(fg, bg, bit, z);
          if (!p) {
             k++;
             z += bit->bitmap.pitch - bit->bitmap.width;
          }
-         if (getColorHex(result) == colorsGamma[BOX])
+         if (GET_COLOR_HEX(result) == colorsGamma[BOX])
             continue;
-         result = apply_inverse_gama(result);
+         result = APPLY_INVERSE_GAMA(result);
          ((uint32_t *)data)[p + (text.glyphs[n].pos.y + k + crect.pos.y - bit->top + (face->size->metrics.height >> 7)) * WINDOW_WIDTH +
-                            bit->left] = getColorHex(result);
+                            bit->left] = GET_COLOR_HEX(result);
       }
       pen.x += image->advance.x >> 10;
       pen.y += image->advance.y >> 10;
@@ -318,6 +331,7 @@ static void fillRect(int x, int y, int width, int height, struct my_state *state
       }
    }
 }
+
 static void drawRoundedRectFilled(int x1, int y1, int x2, int y2, int radius, struct my_state *state, void *data) {
    int x, y;
    if (x1 > x2) {
@@ -353,6 +367,7 @@ static void drawRoundedRectFilled(int x1, int y1, int x2, int y2, int radius, st
       plotLineAA(cx1 - y, cy2 + x + 1, cx2 + y, cy2 + x + 1, state, data, 1);
    }
 }
+
 static void draw_rect(Rect rect, uint16_t radius, uint16_t thickness, bool filled, Colors backg, Colors border, void *data, struct my_state *state) {
    int f_thickness = ceil(thickness / 2.0) - 1;
    int x = rect.pos.x;
@@ -361,7 +376,7 @@ static void draw_rect(Rect rect, uint16_t radius, uint16_t thickness, bool fille
    int height = rect.size.y;
 
    if (filled && radius == 0) {
-      state->currColor = getColorFromHex(colorsGamma[backg]);
+      state->currColor = GET_COLOR_FROM_HEX(colorsGamma[backg]);
       fillRect(x, y, width, height, state, data);
       if (backg == border)
          return;
@@ -372,10 +387,10 @@ static void draw_rect(Rect rect, uint16_t radius, uint16_t thickness, bool fille
    int y1 = y + height;
 
    if (filled && radius > 0) {
-      state->currColor = getColorFromHex(colorsGamma[backg]);
+      state->currColor = GET_COLOR_FROM_HEX(colorsGamma[backg]);
       drawRoundedRectFilled(x0 + 1, y0 - 1, x1 - 1, y1 - 1, radius - radius / 6, state, data);
    }
-   state->currColor = getColorFromHex(colorsGamma[border]);
+   state->currColor = GET_COLOR_FROM_HEX(colorsGamma[border]);
    plotLineAA(x0 + radius + 1, y0, x1 - radius - 1, y0, state, data, thickness);
    plotLineAA(x0 + radius + 1, y1, x1 - radius - 1, y1, state, data, thickness);
    plotLineAA(x0 + f_thickness, y0 + radius - f_thickness + 1, x0 + f_thickness, y1 - radius - 1, state, data, thickness);
@@ -401,6 +416,7 @@ static void draw_rect(Rect rect, uint16_t radius, uint16_t thickness, bool fille
       }
    }
 }
+
 static void fill_bg_no_aa(void *data, struct my_state *state) {
    for (int y = 0; y < state->height; ++y) {
       for (int x = 0; x < state->width; ++x) {
@@ -408,6 +424,7 @@ static void fill_bg_no_aa(void *data, struct my_state *state) {
       }
    }
 }
+
 static void create_shm_pool(struct my_state *state) {
    uint32_t width = state->width;
    uint32_t height = state->height;
@@ -428,6 +445,7 @@ static void create_shm_pool(struct my_state *state) {
    wl_shm_pool_destroy(pool);
    wl_buffer_add_listener(state->buffer, &wl_buffer_listener, state);
 }
+
 static void draw_png_bytep(Image img, Poz pos, void *data, struct my_state *state, float ratio) {
    if (img.data == NULL)
       return;
@@ -454,9 +472,9 @@ static void draw_png_bytep(Image img, Poz pos, void *data, struct my_state *stat
          fg.b /= (yy * xx);
          fg.a /= (yy * xx);
          uint32_t pixel = 0;
-         Color bg = getColorFromHex(colors[BOX]);
-         Color result = blend(fg, bg, fg.a / 255.0);
-         pixel = getColorHex(result);
+         Color bg = GET_COLOR_FROM_HEX(colors[BOX]);
+         Color result = BLEND(fg, bg, fg.a / 255.0);
+         pixel = GET_COLOR_HEX(result);
          ((uint32_t *)data)[(ycnt + pos.y) * state->width + (xcnt + pos.x)] = pixel;
       }
       y += (ry - 1);
@@ -493,7 +511,6 @@ static void draw_frame(struct my_state *state) {
       }
    }
    state->lstate.old_pagenr = state->lstate.pagenr;
-   // state->done = 1;
 }
 
 static void wl_pointer_enter(void *data, struct wl_pointer *wl_pointer,
@@ -565,7 +582,7 @@ static void wl_pointer_axis_discrete(void *data, struct wl_pointer *wl_pointer,
    client_state->pointer_event.axes[axis].valid = true;
    client_state->pointer_event.axes[axis].discrete = discrete;
 }
-PointerC pointer_init = {0};
+
 static void wl_pointer_frame(void *data, struct wl_pointer *wl_pointer) {
    struct my_state *client_state = data;
    struct pointer_event *event = &client_state->pointer_event;
@@ -679,6 +696,7 @@ static void wl_keyboard_enter(void *data, struct wl_keyboard *wl_keyboard,
       fprintf(stderr, "utf8: '%s'\n", buf);
    }
 }
+
 void redraw(struct my_state *state, int direction) {
    if (state->done) {
       draw_frame(state);
@@ -687,6 +705,7 @@ void redraw(struct my_state *state, int direction) {
       wl_surface_commit(state->surface);
    }
 }
+
 void handle_key(xkb_keysym_t sym, struct my_state *state) {
    switch (sym) {
       case XKB_KEY_Up:
@@ -718,6 +737,7 @@ void handle_key(xkb_keysym_t sym, struct my_state *state) {
          break;
    }
 }
+
 static bool start_repeater(struct my_state *state, xkb_keysym_t key) {
    if (state->rinfo.rate == 0)
       return true;
@@ -743,6 +763,7 @@ static bool start_repeater(struct my_state *state, xkb_keysym_t key) {
    state->rinfo.repeat_key_sym = key;
    return true;
 }
+
 static bool stop_repeater(struct my_state *state, xkb_keysym_t key) {
    if (key != -1 && key != state->rinfo.repeat_key_sym)
       return true;
@@ -754,6 +775,7 @@ static bool stop_repeater(struct my_state *state, xkb_keysym_t key) {
 
    return true;
 }
+
 static bool fdm_repeat(struct fdm *fdm, int fd, int events, void *data) {
    if (events & EPOLLHUP)
       return false;
@@ -772,6 +794,7 @@ static bool fdm_repeat(struct fdm *fdm, int fd, int events, void *data) {
       handle_key(state->rinfo.repeat_key_sym, state);
    return true;
 }
+
 static bool fdm_display(struct fdm *fdm, int fd, int events, void *data) {
    struct my_state *state = data;
    if (events & EPOLLHUP)
@@ -781,6 +804,7 @@ static bool fdm_display(struct fdm *fdm, int fd, int events, void *data) {
 
    return true;
 }
+
 static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
                             uint32_t serial, uint32_t time, uint32_t key,
                             uint32_t state) {
@@ -804,6 +828,7 @@ static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
    }
    xkb_state_key_get_utf8(client_state->xkb_state, keycode, buf, sizeof(buf));
 }
+
 static void wl_keyboard_leave(void *data, struct wl_keyboard *wl_keyboard,
                               uint32_t serial, struct wl_surface *surface) {
    fprintf(stderr, "keyboard leave\n");
@@ -882,6 +907,7 @@ static void registry_handle_global(void *data, struct wl_registry *registry,
       state->xdg_output_manager = wl_registry_bind(registry, name, &zxdg_output_manager_v1_interface, 3);
    }
 }
+
 static void registry_handle_global_remove(void *data,
                                           struct wl_registry *registry,
                                           uint32_t name) {}
@@ -889,13 +915,16 @@ static void shm_handle_global(void *data, struct wl_shm *wl_shm,
                               uint32_t format) {
    fprintf(stderr, "The supported pixel formats are 0x%08x\n", format);
 }
+
 static const struct wl_registry_listener registry_listener = {
     .global = registry_handle_global,
     .global_remove = registry_handle_global_remove,
 };
+
 static const struct wl_shm_listener shm_listener = {
     .format = shm_handle_global,
 };
+
 static void layer_surface_configure(void *data,
                                     struct zwlr_layer_surface_v1 *surface,
                                     uint32_t serial, uint32_t width, uint32_t height) {
@@ -909,6 +938,7 @@ static void layer_surface_configure(void *data,
    wl_surface_damage(state->surface, 0, 0, width, height);
    wl_surface_commit(state->surface);
 }
+
 static void layer_surface_configure_temp(void *data,
                                          struct zwlr_layer_surface_v1 *surface,
                                          uint32_t serial, uint32_t width, uint32_t height) {
@@ -921,15 +951,18 @@ static void layer_surface_configure_temp(void *data,
    wl_surface_damage(state->surface, 0, 0, width, height);
    wl_surface_commit(state->surface);
 }
+
 static void layer_surface_closed(void *data,
                                  struct zwlr_layer_surface_v1 *surface) {
    struct my_state *state = data;
    state->closed = true;
 }
+
 static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
     .configure = layer_surface_configure,
     .closed = layer_surface_closed,
 };
+
 static const struct zwlr_layer_surface_v1_listener layer_surface_listener_temp = {
     .configure = layer_surface_configure_temp,
     .closed = layer_surface_closed,
@@ -976,18 +1009,21 @@ static const struct zxdg_output_v1_listener zxout_listener = {
 
 void setup(struct my_state *state) {
    setlocale(LC_CTYPE, "");
+
    FTCHECK(FT_Init_FreeType(&library), "initializing freetype");
    FTCHECK(FT_New_Face(library, FONT_PATH, 0, &face),
            "loading font, have you set a valid font in src/config.h? Current path is " FONT_PATH);
    FTCHECK(FT_Set_Char_Size(face, TEXT_SIZE * 64, 0, DPI, DPI), "setting font size");
-   precompute_gama();
-   memset(state->map.nntextmap, 0, sizeof(Text) * TOTAL_RECTS);
-   compute_rects(rects, box_base_rect, box_tr_mat);
-   compute_rects(textmap, text_base_rect, text_tr_mat);
-   state->clipdata = open_shm_file_data("OS", &state->cfd);
-   ERRCHECK(state->clipdata, "open_shm_file_data");
+
+   PRECOMPUTE_GAMA(colorsGamma);
+
+   INIT_RECTS(rects, box_base_rect, box_tr_mat);
+   INIT_RECTS(textmap, text_base_rect, text_tr_mat);
+
+   ERRCHECK(state->clipdata = open_shm_file_data("OS", &state->cfd), "open_shm_file_data");
    state->lstate.old_pagenr = UINT16_MAX;
    state->map.textl = build_textlist(state->clipdata, &state->lstate.enr);
+
    struct repeatInfo *rinfo = &state->rinfo;
    if ((rinfo->timerfd = timerfd_create(CLOCK_REALTIME, TFD_NONBLOCK | TFD_CLOEXEC)) == -1) {
       fprintf(stderr, "Failed to create timerfd: %s\n", strerror(errno));
@@ -996,8 +1032,8 @@ void setup(struct my_state *state) {
    state->fdm = fdm_init();
    fdm_add(state->fdm, rinfo->timerfd, EPOLLIN, &fdm_repeat, state);
    fdm_add(state->fdm, wl_display_get_fd(state->display), EPOLLIN, &fdm_display, state);
-   state->done = 1;
 }
+
 void zwlr_layer_surface_v1_init(struct my_state *state, const struct zwlr_layer_surface_v1_listener *layer_surface_listener_vlt) {
    state->surface = wl_compositor_create_surface(state->compositor);
    state->layer_surface = zwlr_layer_shell_v1_get_layer_surface(state->layer_shell, state->surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "clipcell");
@@ -1007,6 +1043,7 @@ void zwlr_layer_surface_v1_init(struct my_state *state, const struct zwlr_layer_
    zwlr_layer_surface_v1_set_size(state->layer_surface, WINDOW_WIDTH, WINDOW_HEIGHT);
    zwlr_layer_surface_v1_set_keyboard_interactivity(state->layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
 }
+
 void clean(struct my_state *state) {
    fdm_del(state->fdm, state->rinfo.timerfd);
    fdm_del(state->fdm, wl_display_get_fd(state->display));
@@ -1030,6 +1067,7 @@ void clean(struct my_state *state) {
    wl_surface_destroy(state->surface);
    wl_buffer_destroy(state->buffer);
 }
+
 int main(int argc, char const *argv[]) {
    struct my_state state = {0};
    state.display = wl_display_connect(NULL);

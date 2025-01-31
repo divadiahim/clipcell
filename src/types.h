@@ -44,8 +44,6 @@ typedef struct rect {
 } Rect;
 
 /* Freetype */
-extern FT_Library library;
-
 typedef struct TGlyph_ {
    FT_UInt index; /* glyph index                  */
    FT_Vector pos; /* glyph origin on the baseline */
@@ -59,8 +57,6 @@ typedef struct Text {
 } Text;
 
 /* Colors */
-extern uint64_t colorsGamma[TOTAL_COLORS];
-
 typedef struct Color {
    float r;
    float g;
@@ -122,9 +118,8 @@ typedef struct image {
 /* Templates */
 static const Rect box_base_rect = {{BOX_PADDING, BOX_START}, {WINDOW_WIDTH - 2 * BOX_PADDING, BOX_HEIGHT}};
 static const Poz box_tr_mat = {0, BOX_HEIGHT + BOX_SPACING};
-extern Rect rects[TOTAL_RECTS];
 
 static const Rect text_base_rect = {{BOX_PADDING + BORDER_WIDTH + TEXT_PADDING, BOX_START + BORDER_WIDTH + TEXT_PADDING}, {WINDOW_WIDTH - 2 * BOX_PADDING - BORDER_WIDTH - TEXT_PADDING, BOX_HEIGHT - 2 * BORDER_WIDTH - 2 * TEXT_PADDING}};
 static const Poz text_tr_mat = {0, BOX_HEIGHT + BOX_SPACING};
-extern Rect textmap[TOTAL_RECTS];
-extern const char exclchars[];
+
+static const char exclchars[] = {'\n', '\t', '\r', '\v', '\f', '\0'};

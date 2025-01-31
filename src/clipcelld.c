@@ -51,6 +51,7 @@ int main(int argc, char *argv[]) {
       fprintf(stderr, "Usage: %s <store|reset>\n", argv[0]);
       exit(EXIT_FAILURE);
    }
+   
    if((rst = (strcmp(argv[1], "reset") == 0) ? 1 : ((strcmp(argv[1], "store") == 0) ? 0 : -1)) == -1) {
       fprintf(stderr, "Invalid argument: %s\n", argv[1]);
       fprintf(stderr, "Usage: %s <store|reset>\n", argv[0]);
