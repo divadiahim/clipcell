@@ -52,8 +52,12 @@ A simple wayland native GUI clipboard manager, with support for text and image p
    To keep everything minimal and not bloat the project with unnecessary fontconfig dependencies a path to the font that is to be used should be set in the config file, by default it being ``/usr/share/fonts/koruri/Koruri-Regular.ttf``.
 
 ### Installation
-
-1. Just a simple
+#### From AUR
+  ```sh
+  yay -S clipcell
+  ```
+#### From Source
+Just a simple
    ```sh
    sudo make install
    ```
