@@ -95,9 +95,11 @@ static PointerC pointer_init;
 static void wl_seat_name(void *data, struct wl_seat *wl_seat, const char *name) {}
 static void wl_output_done(void *data, struct wl_output *wl_output) {}
 static void wl_output_scale(void *data, struct wl_output *wl_output, int32_t factor) {}
-static void get_mode(void *data, struct wl_output *wl_output, uint32_t flags, int32_t width, int32_t height, int32_t refresh) {}
-static void get_geometry(void *data, struct wl_output *wl_output, int32_t x, int32_t y, int32_t physical_width, int32_t physical_height,
-                         int32_t subpixel, const char *make, const char *model, int32_t transform) {}
+static void get_mode(void *data, struct wl_output *wl_output, uint32_t flags, int32_t width, int32_t height,
+                     int32_t refresh) {}
+static void get_geometry(void *data, struct wl_output *wl_output, int32_t x, int32_t y, int32_t physical_width,
+                         int32_t physical_height, int32_t subpixel, const char *make, const char *model,
+                         int32_t transform) {}
 static void zxout_done(void *d, struct zxdg_output_v1 *z) {}
 static void zxout_description(void *d, struct zxdg_output_v1 *z, const char *c) {}
 static void zxout_name(void *d, struct zxdg_output_v1 *z, const char *c) {}
@@ -124,7 +126,9 @@ static void draw_pixel(int x, int y, float intensity, state_t *state, void *data
 
 static void setPixelAA(int x, int y, int c, state_t *state, void *data) { draw_pixel(x, y, c / 255.0, state, data); }
 
-static void setPixelColor(int x, int y, int c, state_t *state, void *data) { draw_pixel(x, y, (c & 0x000000ff) / 255.0, state, data); }
+static void setPixelColor(int x, int y, int c, state_t *state, void *data) {
+    draw_pixel(x, y, (c & 0x000000ff) / 255.0, state, data);
+}
 
 static void plotLineAA(int x0, int y0, int x1, int y1, state_t *state, void *data, int wd) {
     int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
@@ -153,9 +157,10 @@ static void plotLineAA(int x0, int y0, int x1, int y1, state_t *state, void *dat
     }
 }
 
-static void plotQuadRationalBezierSegAA(int x0, int y0, int x1, int y1, int x2, int y2, float w, bool aa, state_t *state,
-                                        void *data) { /* draw an anti-aliased rational quadratic Bezier segment, squared weight */
-    int sx = x2 - x1, sy = y2 - y1;                   /* relative values for checks */
+static void plotQuadRationalBezierSegAA(
+    int x0, int y0, int x1, int y1, int x2, int y2, float w, bool aa, state_t *state,
+    void *data) {                   /* draw an anti-aliased rational quadratic Bezier segment, squared weight */
+    int sx = x2 - x1, sy = y2 - y1; /* relative values for checks */
     double dx = x0 - x2, dy = y0 - y2, xx = x0 - x1, yy = y0 - y1;
     double xy = xx * sy + yy * sx, cur = xx * sy - yy * sx, err, ed; /* curvature */
     bool f;
@@ -331,7 +336,9 @@ static void draw_text(Text text, rect_t crect, Colors FG, Colors BG, void *data)
             }
             if (GET_COLOR_HEX(result) == colorsGamma[BOX]) continue;
             result = APPLY_INVERSE_GAMA(result);
-            ((uint32_t *)data)[p + (text.glyphs[n].pos.y + k + crect.pos.y - bit->top + (face->size->metrics.height >> 7)) * WINDOW_WIDTH +
+            ((uint32_t *)data)[p +
+                               (text.glyphs[n].pos.y + k + crect.pos.y - bit->top + (face->size->metrics.height >> 7)) *
+                                   WINDOW_WIDTH +
                                bit->left] = GET_COLOR_HEX(result);
         }
         pen.x += image->advance.x >> 10;
@@ -384,8 +391,8 @@ static void drawRoundedRectFilled(int x1, int y1, int x2, int y2, int radius, st
     }
 }
 
-static void draw_rect(rect_t rect, uint16_t radius, uint16_t thickness, bool filled, Colors backg, Colors border, void *data,
-                      state_t *state) {
+static void draw_rect(rect_t rect, uint16_t radius, uint16_t thickness, bool filled, Colors backg, Colors border,
+                      void *data, state_t *state) {
     int f_thickness = ceil(thickness / 2.0) - 1;
     int x = rect.pos.x;
     int y = rect.pos.y + f_thickness;
@@ -409,28 +416,33 @@ static void draw_rect(rect_t rect, uint16_t radius, uint16_t thickness, bool fil
     state->currColor = GET_COLOR_FROM_HEX(colorsGamma[border]);
     plotLineAA(x0 + radius + 1, y0, x1 - radius - 1, y0, state, data, thickness);
     plotLineAA(x0 + radius + 1, y1, x1 - radius - 1, y1, state, data, thickness);
-    plotLineAA(x0 + f_thickness, y0 + radius - f_thickness + 1, x0 + f_thickness, y1 - radius - 1, state, data, thickness);
+    plotLineAA(x0 + f_thickness, y0 + radius - f_thickness + 1, x0 + f_thickness, y1 - radius - 1, state, data,
+               thickness);
     plotLineAA(x1, y0 + radius - f_thickness + 1, x1, y1 - radius - 1, state, data, thickness);
     if (radius > 0) {
-        plotQuadRationalBezierSegAA(x0, y0 + radius - f_thickness, x0, y0 - f_thickness, x0 + radius, y0 - f_thickness, 1, 1, state, data);
-        plotQuadRationalBezierSegAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y0, x0 + radius, y0, 1, 1, state, data);
+        plotQuadRationalBezierSegAA(x0, y0 + radius - f_thickness, x0, y0 - f_thickness, x0 + radius, y0 - f_thickness,
+                                    1, 1, state, data);
+        plotQuadRationalBezierSegAA(x0 + f_thickness, y0 + radius - f_thickness, x0 + f_thickness, y0, x0 + radius, y0,
+                                    1, 1, state, data);
 
-        plotQuadRationalBezierSegAA(x1 - f_thickness, y0 + radius - f_thickness, x1 - f_thickness, y0, x1 - radius, y0, 1, 1, state, data);
-        plotQuadRationalBezierSegAA(x1, y0 + radius - f_thickness, x1, y0 - f_thickness, x1 - radius, y0 - f_thickness, 1, 1, state, data);
+        plotQuadRationalBezierSegAA(x1 - f_thickness, y0 + radius - f_thickness, x1 - f_thickness, y0, x1 - radius, y0,
+                                    1, 1, state, data);
+        plotQuadRationalBezierSegAA(x1, y0 + radius - f_thickness, x1, y0 - f_thickness, x1 - radius, y0 - f_thickness,
+                                    1, 1, state, data);
 
-        plotQuadRationalBezierSegAA(x0 + f_thickness, y1 - radius, x0 + f_thickness, y1 - f_thickness, x0 + radius, y1 - f_thickness, 1, 1,
-                                    state, data);
+        plotQuadRationalBezierSegAA(x0 + f_thickness, y1 - radius, x0 + f_thickness, y1 - f_thickness, x0 + radius,
+                                    y1 - f_thickness, 1, 1, state, data);
         plotQuadRationalBezierSegAA(x0, y1 - radius, x0, y1, x0 + radius, y1, 1, 1, state, data);
 
-        plotQuadRationalBezierSegAA(x1 - f_thickness, y1 - radius, x1 - f_thickness, y1 - f_thickness, x1 - radius, y1 - f_thickness, 1, 1,
-                                    state, data);
+        plotQuadRationalBezierSegAA(x1 - f_thickness, y1 - radius, x1 - f_thickness, y1 - f_thickness, x1 - radius,
+                                    y1 - f_thickness, 1, 1, state, data);
         plotQuadRationalBezierSegAA(x1, y1 - radius, x1, y1, x1 - radius, y1, 1, 1, state, data);
 
         for (int i = 1; i < f_thickness; i += 1) {
-            plotQuadRationalBezierSegAA(x0 + i, y0 + radius - f_thickness, x0 + i, y0 - f_thickness + i, x0 + radius, y0 - f_thickness + i,
-                                        1, 0, state, data);
-            plotQuadRationalBezierSegAA(x1 - i, y0 + radius - f_thickness, x1 - i, y0 - f_thickness + i, x1 - radius, y0 - f_thickness + i,
-                                        1, 0, state, data);
+            plotQuadRationalBezierSegAA(x0 + i, y0 + radius - f_thickness, x0 + i, y0 - f_thickness + i, x0 + radius,
+                                        y0 - f_thickness + i, 1, 0, state, data);
+            plotQuadRationalBezierSegAA(x1 - i, y0 + radius - f_thickness, x1 - i, y0 - f_thickness + i, x1 - radius,
+                                        y0 - f_thickness + i, 1, 0, state, data);
             plotQuadRationalBezierSegAA(x0 + i, y1 - radius, x0 + i, y1 - i, x0 + radius, y1 - i, 1, 0, state, data);
             plotQuadRationalBezierSegAA(x1 - i, y1 - radius, x1 - i, y1 - i, x1 - radius, y1 - i, 1, 0, state, data);
         }
@@ -515,7 +527,8 @@ static void draw_frame(state_t *state) {
                 memset(&state->map.imgmap[i], 0, sizeof(Image));
                 switch (state->map.textl[ai].mime) {
                     case MIME_TEXT:
-                        load_text(&state->map.nntextmap[i], textmap[i], (char *)state->map.textl[ai].data, state->map.textl[ai].size);
+                        load_text(&state->map.nntextmap[i], textmap[i], (char *)state->map.textl[ai].data,
+                                  state->map.textl[ai].size);
                         break;
                     case MIME_IMAGE_PNG:
                         get_buf_from_png(&state->map.imgmap[i], state->map.textl[ai].data, state->map.textl[ai].size);
@@ -527,14 +540,15 @@ static void draw_frame(state_t *state) {
                 }
             }
             draw_text(state->map.nntextmap[i], textmap[i], FOREG, BOX, state->data);
-            draw_png_bytep(state->map.imgmap[i], textmap[i].pos, state->data, state, calc_scaling_factor(state->map.imgmap[i]));
+            draw_png_bytep(state->map.imgmap[i], textmap[i].pos, state->data, state,
+                           calc_scaling_factor(state->map.imgmap[i]));
         }
     }
     state->lstate.old_pagenr = state->lstate.pagenr;
 }
 
-static void wl_pointer_enter(void *data, struct wl_pointer *wl_pointer, uint32_t serial, struct wl_surface *surface, wl_fixed_t surface_x,
-                             wl_fixed_t surface_y) {
+static void wl_pointer_enter(void *data, struct wl_pointer *wl_pointer, uint32_t serial, struct wl_surface *surface,
+                             wl_fixed_t surface_x, wl_fixed_t surface_y) {
     state_t *client_state = data;
     client_state->pointer_event.event_mask |= POINTER_EVENT_ENTER;
     client_state->pointer_event.serial = serial;
@@ -547,14 +561,16 @@ static void wl_pointer_leave(void *data, struct wl_pointer *wl_pointer, uint32_t
     client_state->pointer_event.event_mask |= POINTER_EVENT_LEAVE;
 }
 
-static void wl_pointer_motion(void *data, struct wl_pointer *wl_pointer, uint32_t time, wl_fixed_t surface_x, wl_fixed_t surface_y) {
+static void wl_pointer_motion(void *data, struct wl_pointer *wl_pointer, uint32_t time, wl_fixed_t surface_x,
+                              wl_fixed_t surface_y) {
     state_t *client_state = data;
     client_state->pointer_event.event_mask |= POINTER_EVENT_MOTION;
     client_state->pointer_event.time = time;
     client_state->pointer_event.surface_x = surface_x, client_state->pointer_event.surface_y = surface_y;
 }
 
-static void wl_pointer_button(void *data, struct wl_pointer *wl_pointer, uint32_t serial, uint32_t time, uint32_t button, uint32_t state) {
+static void wl_pointer_button(void *data, struct wl_pointer *wl_pointer, uint32_t serial, uint32_t time,
+                              uint32_t button, uint32_t state) {
     state_t *client_state = data;
     client_state->pointer_event.event_mask |= POINTER_EVENT_BUTTON;
     client_state->pointer_event.time = time;
@@ -593,28 +609,29 @@ static void wl_pointer_axis_discrete(void *data, struct wl_pointer *wl_pointer, 
 static void wl_pointer_frame(void *data, struct wl_pointer *wl_pointer) {
     state_t *client_state = data;
     struct pointer_event *event = &client_state->pointer_event;
-    fprintf(stderr, "pointer frame @ %d: ", event->time);
+    LOG(1, "pointer frame @ %d: ", event->time);
 
     if (event->event_mask & POINTER_EVENT_ENTER) {
-        fprintf(stderr, "entered %d, %d ", wl_fixed_to_int(event->surface_x), wl_fixed_to_int(event->surface_y));
+        LOG(1, "entered %d, %d ", wl_fixed_to_int(event->surface_x), wl_fixed_to_int(event->surface_y));
         pointer_init.x = wl_fixed_to_int(event->surface_x);
         pointer_init.y = wl_fixed_to_int(event->surface_y);
     }
 
     if (event->event_mask & POINTER_EVENT_LEAVE) {
-        fprintf(stderr, "leave");
+        LOG(1, "leave");
     }
 
     if (event->event_mask & POINTER_EVENT_MOTION) {
-        fprintf(stderr, "motion %f, %f ", wl_fixed_to_double(event->surface_x), wl_fixed_to_double(event->surface_y));
+        LOG(1, "motion %f, %f ", wl_fixed_to_double(event->surface_x), wl_fixed_to_double(event->surface_y));
     }
 
     if (event->event_mask & POINTER_EVENT_BUTTON) {
         char *state = event->state == WL_POINTER_BUTTON_STATE_RELEASED ? "released" : "pressed";
-        fprintf(stderr, "button %d %s ", event->button, state);
+        LOG(1, "button %d %s ", event->button, state);
     }
 
-    uint32_t axis_events = POINTER_EVENT_AXIS | POINTER_EVENT_AXIS_SOURCE | POINTER_EVENT_AXIS_STOP | POINTER_EVENT_AXIS_DISCRETE;
+    uint32_t axis_events =
+        POINTER_EVENT_AXIS | POINTER_EVENT_AXIS_SOURCE | POINTER_EVENT_AXIS_STOP | POINTER_EVENT_AXIS_DISCRETE;
     char *axis_name[2] = {
         [WL_POINTER_AXIS_VERTICAL_SCROLL] = "vertical",
         [WL_POINTER_AXIS_HORIZONTAL_SCROLL] = "horizontal",
@@ -630,23 +647,23 @@ static void wl_pointer_frame(void *data, struct wl_pointer *wl_pointer) {
             if (!event->axes[i].valid) {
                 continue;
             }
-            fprintf(stderr, "%s axis ", axis_name[i]);
+            LOG(1, "%s axis ", axis_name[i]);
             if (event->event_mask & POINTER_EVENT_AXIS) {
-                fprintf(stderr, "value %f ", wl_fixed_to_double(event->axes[i].value));
+                LOG(1, "value %f ", wl_fixed_to_double(event->axes[i].value));
             }
             if (event->event_mask & POINTER_EVENT_AXIS_DISCRETE) {
-                fprintf(stderr, "discrete %d ", event->axes[i].discrete);
+                LOG(1, "discrete %d ", event->axes[i].discrete);
             }
             if (event->event_mask & POINTER_EVENT_AXIS_SOURCE) {
-                fprintf(stderr, "via %s ", axis_source[event->axis_source]);
+                LOG(1, "via %s ", axis_source[event->axis_source]);
             }
             if (event->event_mask & POINTER_EVENT_AXIS_STOP) {
-                fprintf(stderr, "(stopped) ");
+                LOG(1, "(stopped) ");
             }
         }
     }
 
-    fprintf(stderr, "\n");
+    LOG(1, "\n");
     memset(event, 0, sizeof(*event));
 }
 
@@ -662,15 +679,16 @@ static const struct wl_pointer_listener wl_pointer_listener = {
     .axis_discrete = wl_pointer_axis_discrete,
 };
 
-static void wl_keyboard_keymap(void *data, struct wl_keyboard *wl_keyboard, uint32_t format, int32_t fd, uint32_t size) {
+static void wl_keyboard_keymap(void *data, struct wl_keyboard *wl_keyboard, uint32_t format, int32_t fd,
+                               uint32_t size) {
     state_t *client_state = data;
     assert(format == WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1);
 
     char *map_shm = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
     assert(map_shm != MAP_FAILED);
 
-    struct xkb_keymap *xkb_keymap =
-        xkb_keymap_new_from_string(client_state->xkb_context, map_shm, XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    struct xkb_keymap *xkb_keymap = xkb_keymap_new_from_string(client_state->xkb_context, map_shm,
+                                                               XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
     munmap(map_shm, size);
     close(fd);
 
@@ -684,15 +702,15 @@ static void wl_keyboard_keymap(void *data, struct wl_keyboard *wl_keyboard, uint
 static void wl_keyboard_enter(void *data, struct wl_keyboard *wl_keyboard, uint32_t serial, struct wl_surface *surface,
                               struct wl_array *keys) {
     state_t *client_state = data;
-    fprintf(stderr, "keyboard enter; keys pressed are:\n");
+    LOG(1, "keyboard enter; keys pressed are:\n");
     uint32_t *key;
     wl_array_for_each(key, keys) {
         char buf[128];
         xkb_keysym_t sym = xkb_state_key_get_one_sym(client_state->xkb_state, *key + 8);
         xkb_keysym_get_name(sym, buf, sizeof(buf));
-        fprintf(stderr, "sym: %-12s (%d), ", buf, sym);
+        LOG(1, "sym: %-12s (%d), ", buf, sym);
         xkb_state_key_get_utf8(client_state->xkb_state, *key + 8, buf, sizeof(buf));
-        fprintf(stderr, "utf8: '%s'\n", buf);
+        LOG(1, "utf8: '%s'\n", buf);
     }
 }
 
@@ -701,8 +719,8 @@ void redraw(state_t *state, int direction) {
         draw_frame(state);
         wl_surface_attach(state->surface, state->buffer, 0, 0);
         wl_surface_damage(state->surface, 0, 0, state->width,
-                          state->height);  /// This damage could be made smarter but honestly it really doesn't hurt performance or resource
-                                           /// in any significant manner so
+                          state->height);  /// This damage could be made smarter but honestly it really doesn't hurt
+                                           /// performance or resource in any significant manner so
         wl_surface_commit(state->surface);
     }
 }
@@ -730,7 +748,8 @@ void handle_key(xkb_keysym_t sym, state_t *state) {
             break;
         case XKB_KEY_Return:
             output_entry(state->map.textl[state->lstate.currtext]);
-            truncate_shm_file(state->cfd, state->clipdata, removeNode(state->clipdata, state->map.textl[state->lstate.currtext].poz));
+            truncate_shm_file(state->cfd, state->clipdata,
+                              removeNode(state->clipdata, state->map.textl[state->lstate.currtext].poz));
             state->closed = true;
             break;
         default:
@@ -797,7 +816,8 @@ static bool fdm_display(struct fdm *fdm, int fd, int events, void *data) {
     return true;
 }
 
-static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard, uint32_t serial, uint32_t time, uint32_t key, uint32_t state) {
+static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard, uint32_t serial, uint32_t time, uint32_t key,
+                            uint32_t state) {
     state_t *client_state = data;
     char buf[128];
     uint32_t keycode = key + 8;
@@ -818,8 +838,9 @@ static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard, uint32_
     xkb_state_key_get_utf8(client_state->xkb_state, keycode, buf, sizeof(buf));
 }
 
-static void wl_keyboard_leave(void *data, struct wl_keyboard *wl_keyboard, uint32_t serial, struct wl_surface *surface) {
-    fprintf(stderr, "keyboard leave\n");
+static void wl_keyboard_leave(void *data, struct wl_keyboard *wl_keyboard, uint32_t serial,
+                              struct wl_surface *surface) {
+    LOG(1, "keyboard leave\n");
     stop_repeater(data, -1);
 }
 
@@ -870,7 +891,8 @@ static const struct wl_seat_listener wl_seat_listener = {
     .capabilities = wl_seat_capabilities,
 };
 
-static void registry_handle_global(void *data, struct wl_registry *registry, uint32_t name, const char *interface, uint32_t version) {
+static void registry_handle_global(void *data, struct wl_registry *registry, uint32_t name, const char *interface,
+                                   uint32_t version) {
     state_t *state = data;
     if (strcmp(interface, wl_compositor_interface.name) == 0) {
         state->compositor = wl_registry_bind(registry, name, &wl_compositor_interface, 4);
@@ -891,7 +913,7 @@ static void registry_handle_global(void *data, struct wl_registry *registry, uin
 
 static void registry_handle_global_remove(void *data, struct wl_registry *registry, uint32_t name) {}
 static void shm_handle_global(void *data, struct wl_shm *wl_shm, uint32_t format) {
-    fprintf(stderr, "The supported pixel formats are 0x%08x\n", format);
+    LOG(1, "The supported pixel formats are 0x%08x\n", format);
 }
 
 static const struct wl_registry_listener registry_listener = {
@@ -903,7 +925,8 @@ static const struct wl_shm_listener shm_listener = {
     .format = shm_handle_global,
 };
 
-static void layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface, uint32_t serial, uint32_t width, uint32_t height) {
+static void layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface, uint32_t serial, uint32_t width,
+                                    uint32_t height) {
     state_t *state = data;
     zwlr_layer_surface_v1_ack_configure(surface, serial);
     state->width = width;
@@ -915,8 +938,8 @@ static void layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *su
     wl_surface_commit(state->surface);
 }
 
-static void layer_surface_configure_temp(void *data, struct zwlr_layer_surface_v1 *surface, uint32_t serial, uint32_t width,
-                                         uint32_t height) {
+static void layer_surface_configure_temp(void *data, struct zwlr_layer_surface_v1 *surface, uint32_t serial,
+                                         uint32_t width, uint32_t height) {
     state_t *state = data;
     zwlr_layer_surface_v1_ack_configure(surface, serial);
     state->width = width;
@@ -958,7 +981,7 @@ static void zxout_logical_position(void *d, struct zxdg_output_v1 *z, int x, int
             break;
         }
     }
-    fprintf(stderr, "logical position: %d %d\n", x, y);
+    LOG(1, "logical position: %d %d\n", x, y);
 }
 
 static void zxout_logical_size(void *d, struct zxdg_output_v1 *z, int x, int y) {
@@ -970,7 +993,7 @@ static void zxout_logical_size(void *d, struct zxdg_output_v1 *z, int x, int y) 
             break;
         }
     }
-    fprintf(stderr, "logical size: %d %d\n", x, y);
+    LOG(1, "logical size: %d %d\n", x, y);
 }
 
 static const struct zxdg_output_v1_listener zxout_listener = {
@@ -1000,7 +1023,7 @@ void setup(state_t *state) {
 
     struct repeatInfo *rinfo = &state->rinfo;
     if ((rinfo->timerfd = timerfd_create(CLOCK_REALTIME, TFD_NONBLOCK | TFD_CLOEXEC)) == -1) {
-        fprintf(stderr, "Failed to create timerfd: %s\n", strerror(errno));
+        LOG(10, "Failed to create timerfd: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
     state->fdm = fdm_init();
@@ -1008,16 +1031,19 @@ void setup(state_t *state) {
     fdm_add(state->fdm, wl_display_get_fd(state->display), EPOLLIN, &fdm_display, state);
 }
 
-void zwlr_layer_surface_v1_init(state_t *state, const struct zwlr_layer_surface_v1_listener *layer_surface_listener_vlt) {
+void zwlr_layer_surface_v1_init(state_t *state,
+                                const struct zwlr_layer_surface_v1_listener *layer_surface_listener_vlt) {
     state->surface = wl_compositor_create_surface(state->compositor);
-    state->layer_surface =
-        zwlr_layer_shell_v1_get_layer_surface(state->layer_shell, state->surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "clipcell");
+    state->layer_surface = zwlr_layer_shell_v1_get_layer_surface(state->layer_shell, state->surface, NULL,
+                                                                 ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "clipcell");
     zwlr_layer_surface_v1_add_listener(state->layer_surface, layer_surface_listener_vlt, state);
-    // zwlr_layer_surface_v1_set_anchor(state->layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP |
-    // ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM);
-    zwlr_layer_surface_v1_set_anchor(state->layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP);
+    // zwlr_layer_surface_v1_set_anchor(state->layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT |
+    // ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM);
+    zwlr_layer_surface_v1_set_anchor(state->layer_surface,
+                                     ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP);
     zwlr_layer_surface_v1_set_size(state->layer_surface, WINDOW_WIDTH, WINDOW_HEIGHT);
-    zwlr_layer_surface_v1_set_keyboard_interactivity(state->layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
+    zwlr_layer_surface_v1_set_keyboard_interactivity(state->layer_surface,
+                                                     ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
 }
 
 void clean(state_t *state) {
@@ -1055,7 +1081,8 @@ int main(int argc, char const *argv[]) {
 
     for (uint8_t i = 0; i < state.outn; i++) {  // do you really have more than 255 monitors?
         wl_output_add_listener(state.mons[i].output, &wl_output_listener, &state);
-        state.mons[i].xdg_output = zxdg_output_manager_v1_get_xdg_output(state.xdg_output_manager, state.mons[i].output);
+        state.mons[i].xdg_output =
+            zxdg_output_manager_v1_get_xdg_output(state.xdg_output_manager, state.mons[i].output);
         zxdg_output_v1_add_listener(state.mons[i].xdg_output, &zxout_listener, &state);
     }
 
@@ -1075,7 +1102,7 @@ int main(int argc, char const *argv[]) {
     for (uint8_t i = 0; i < state.outn; i++) {
         if ((-pointer_init.x + WINDOW_WIDTH) <= state.mons[i].width + state.mons[i].rwidth &&
             pointer_init.y <= state.mons[i].height + state.mons[i].rheight) {
-            fprintf(stderr, "monitor %d\n", i);
+            LOG(1, "monitor %d\n", i);
             zwlr_layer_surface_v1_set_margin(state.layer_surface, pointer_init.y + state.mons[i].rheight,
                                              -(pointer_init.x + state.mons[i].rwidth), 0, 0);
             break;

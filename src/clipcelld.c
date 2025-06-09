@@ -21,7 +21,6 @@ void client(void *data, void *infub, size_t size) {
     if (((Node *)dlist)->size == 0) {
         newNode(dlist, infub, size);
     } else {
-        fprintf(stderr, "Head is %x\n", ((uint32_t *)data)[0]);
         pushNode(dlist, infub, size, (uint32_t *)data);
     }
     magic_close(magic);
@@ -73,7 +72,7 @@ int main(int argc, char *argv[]) {
             free(buf);
             exit(EXIT_FAILURE);
         } else {
-            printf("bufsize = %d\n", bufsize);
+            LOG(1, "bufsize = %d\n", bufsize);
         }
     }
 

@@ -22,10 +22,6 @@ void newNode(void *list, void *buf, size_t bufsize) {
 
 void pushNode(void *list, void *buf, size_t bufsize, uint32_t *head) {
     void *poz = list + *head + ((Node *)(list + *head))->size;
-    fprintf(stderr, "Adding node at %p with size %zu\n", poz, bufsize + sizeof(Node));
-    fprintf(stderr, "Starting list at %p with head %u\n", list, *head);
-    fprintf(stderr, "Current head node size: %u, %x\n", ((Node *)(list + *head))->size,
-            ((uint32_t *)(list + *head))[1]);
     Node *newnode = poz;
     newnode->next = *head;
     newnode->size = bufsize + sizeof(Node);

@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-static const uint8_t log_level = 0;
+static const uint8_t log_level = 10;
 
 #define LOG(imp, ...)                     \
     {                                     \
@@ -43,9 +43,9 @@ static const uint8_t log_level = 0;
         }                     \
     }
 
-#define errExit(msg)           \
-    do {                       \
-        perror(msg);           \
-        printf("%d\n", errno); \
-        exit(EXIT_FAILURE);    \
+#define errExit(msg)                            \
+    do {                                        \
+        perror(msg);                            \
+        fprintf(stderr, "Exiting: %s\n", msg);  \
+        exit(EXIT_FAILURE);                     \
     } while (0)
