@@ -1,100 +1,104 @@
 #include "map.h"
+#include "macros.h"
 
-#define errExit(msg)         \
-   do {                      \
-      perror(msg);           \
-      printf("%d\n", errno); \
-      exit(EXIT_FAILURE);    \
-   } while (0)
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <stdint.h>
+#include <errno.h>
+
+#define MAX_FILE_SIZE (100 * 1024 * 1024)
 
 void client(void *data, void *infub, size_t size) {
-   magic_t magic;
-   mimeInit(&magic);
-   void *dlist = data + sizeof(uint32_t);
-   if (((Node *)dlist)->size == 0) {
-      newNode(dlist, infub, size);
-   } else {
-      pushNode(dlist, infub, size, (uint32_t *)data);
-   }
-   magic_close(magic);
+    magic_t magic;
+    mimeInit(&magic);
+    void *dlist = data + sizeof(uint32_t);
+    if (((Node *)dlist)->size == 0) {
+        newNode(dlist, infub, size);
+    } else {
+        fprintf(stderr, "Head is %x\n", ((uint32_t *)data)[0]);
+        pushNode(dlist, infub, size, (uint32_t *)data);
+    }
+    magic_close(magic);
 }
 
 void *read_all(int fd, uint32_t *nread) {
-   int bytes_read = 0, size_mult = 1;
-   *nread = 0;
-   char *buf = malloc(1024);
-   bytes_read = read(fd, &buf[*nread], 256);
-   while (bytes_read > 0) {
-      *nread += bytes_read;
-      if (*nread > size_mult * 512) {
-         size_mult *= 2;
-         buf = realloc(buf, size_mult * 1024);
-      }
-      bytes_read = read(fd, &buf[*nread], 256);
-   }
-   buf = realloc(buf, *nread);
-   return (void *)buf;
+    int bytes_read = 0, size_mult = 1;
+    *nread = 0;
+    char *buf = malloc(1024);
+    bytes_read = read(fd, &buf[*nread], 256);
+    while (bytes_read > 0) {
+        *nread += bytes_read;
+        if (*nread > size_mult * 512) {
+            size_mult *= 2;
+            buf = realloc(buf, size_mult * 1024);
+        }
+        bytes_read = read(fd, &buf[*nread], 256);
+    }
+    buf = realloc(buf, *nread);
+    return (void *)buf;
 }
 
 int main(int argc, char *argv[]) {
-   int fd;
-   int8_t rst;
-   struct stat param;
-   char *name = "OS";
-   void *buf = NULL;
-   void *data = NULL;
-   uint64_t shmbufsize = 0;
-   uint32_t bufsize = 0;
-   uint8_t new = 0;
+    int fd;
+    int8_t rst;
+    struct stat param;
+    char *name = "OS";
+    void *buf = NULL;
+    void *data = NULL;
+    uint64_t shmbufsize = 0;
+    uint32_t bufsize = 0;
+    uint8_t new = 0;
 
-   if (argc != 2) {
-      fprintf(stderr, "Usage: %s <store|reset>\n", argv[0]);
-      exit(EXIT_FAILURE);
-   }
-   
-   if((rst = (strcmp(argv[1], "reset") == 0) ? 1 : ((strcmp(argv[1], "store") == 0) ? 0 : -1)) == -1) {
-      fprintf(stderr, "Invalid argument: %s\n", argv[1]);
-      fprintf(stderr, "Usage: %s <store|reset>\n", argv[0]);
-      exit(EXIT_FAILURE);
-   }
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <store|reset>\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
 
-   if (rst == 0) {
-      freopen(NULL, "rb", stdin);
-      buf = read_all(STDIN_FILENO, &bufsize);
-      if (bufsize == 0) {
-         free(buf);
-         exit(EXIT_FAILURE);
-      }
-      else {
-         printf("bufsize = %d\n", bufsize);
-      }
-   }
+    if ((rst = (strcmp(argv[1], "reset") == 0) ? 1 : ((strcmp(argv[1], "store") == 0) ? 0 : -1)) == -1) {
+        fprintf(stderr, "Invalid argument: %s\n", argv[1]);
+        fprintf(stderr, "Usage: %s <store|reset>\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
 
-   fd = shm_open(name, O_CREAT | O_RDWR | O_EXCL, 0666);
-   if (fd == -1) {
-      if (errno == EEXIST) {
-         fd = shm_open(name, O_RDWR, 0666);
-      } else
-         errExit("shm_open");
-   } else {
-      new = 1;
-      ftruncate(fd, sizeof(uint32_t));
-   }
+    if (rst == 0) {
+        freopen(NULL, "rb", stdin);
+        buf = read_all(STDIN_FILENO, &bufsize);
+        if (bufsize == 0 || bufsize > MAX_FILE_SIZE) {
+            free(buf);
+            exit(EXIT_FAILURE);
+        } else {
+            printf("bufsize = %d\n", bufsize);
+        }
+    }
 
-   fstat(fd, &param);
-   shmbufsize = param.st_size + bufsize + 2 * sizeof(uint32_t);
-   if (ftruncate(fd, shmbufsize) == -1) {
-      errExit("ftruncate");
-   }
-   printf("length = %lu\n", shmbufsize);
+    fd = shm_open(name, O_CREAT | O_RDWR | O_EXCL, 0666);
+    if (fd == -1) {
+        if (errno == EEXIST) {
+            fd = shm_open(name, O_RDWR, 0666);
+        } else
+            errExit("shm_open");
+    } else {
+        new = 1;
+        ftruncate(fd, sizeof(uint32_t));
+    }
 
-   data = mmap(NULL, shmbufsize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-   if (data == MAP_FAILED)
-      errExit("mmap");
-   if (new)
-      memset(data, 0, shmbufsize);
-   (rst == 1) ? shm_unlink(name) : client(data, buf, bufsize);
-   munmap(data, shmbufsize);
-   free(buf);
-   return 0;
+    fstat(fd, &param);
+    shmbufsize = param.st_size + bufsize + 2 * sizeof(uint32_t);
+    if (ftruncate(fd, shmbufsize) == -1) {
+        errExit("ftruncate");
+    }
+
+    data = mmap(NULL, shmbufsize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (data == MAP_FAILED) errExit("mmap");
+    if (new) memset(data, 0, shmbufsize);
+    (rst == 1) ? shm_unlink(name) : client(data, buf, bufsize);
+    munmap(data, shmbufsize);
+    free(buf);
+    return 0;
 }

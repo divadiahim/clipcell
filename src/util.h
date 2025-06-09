@@ -5,18 +5,11 @@
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MOD(a, b) (((a) % (b) + (b)) % (b))
 
-#define errExit(msg)                 \
-   do {                              \
-      perror(msg);                   \
-      fprintf(stderr, "%d ", errno); \
-      exit(EXIT_FAILURE);            \
-   } while (0)
-
 #define INIT_RECTS(rects, brect, tmat) \
    do { \
       rects[0] = brect; \
       for (int i = 1; i < TOTAL_RECTS; i++) { \
-         rects[i].pos = (Poz){rects[i - 1].pos.x + tmat.x, rects[i - 1].pos.y + tmat.y}; \
+         rects[i].pos = (poz_t){rects[i - 1].pos.x + tmat.x, rects[i - 1].pos.y + tmat.y}; \
          rects[i].size = brect.size; \
       } \
    } while (0)
@@ -83,6 +76,6 @@ Entry *build_textlist(void *data, uint16_t *enr);
 void output_entry(Entry entry);
 void free_entries(Entry *entries, int count);
 void free_textlist(Text nntextmap[TOTAL_RECTS]);
-void free_stringlist(TGlyph *glyphs, int count);
+void free_stringlist(tglyph_t *glyphs, int count);
 void free_imglist(Image imgmap[TOTAL_RECTS]);
 void free_image(Image image);
